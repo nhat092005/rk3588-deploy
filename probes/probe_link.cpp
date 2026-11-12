@@ -1,12 +1,17 @@
 // Link and load check for the board libraries: RGA, MPP, RKNN runtime.
 // Exit code 0 only if RGA reports a version, MPP creates and initialises an H.265 encoder,
 // and rknn_init rejects a junk model (proves librknnrt loads and the symbol resolves).
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 
 #include "im2d.hpp"
 #include "rk_mpi.h"
 #include "rknn_api.h"
+
+namespace {
+constexpr std::size_t JUNK_MODEL_SIZE = 64;
+} // namespace
 
 int main() {
     int failures = 0;
@@ -31,11 +36,11 @@ int main() {
     }
 
     rknn_context rknnCtx = 0;
-    char junk[64];
+    char junk[JUNK_MODEL_SIZE];
     std::memset(junk, 0, sizeof(junk));
-    const int rknnRet = rknn_init(&rknnCtx, junk, sizeof(junk), 0, nullptr);
-    std::printf("RKNN : rknn_init(junk) ret=%d (nonzero expected)\n", rknnRet);
-    if (rknnRet == 0) {
+    int rknnStatus = rknn_init(&rknnCtx, junk, sizeof(junk), 0, nullptr);
+    std::printf("RKNN : rknn_init(junk) ret=%d (nonzero expected)\n", rknnStatus);
+    if (rknnStatus == 0) {
         ++failures;
     }
 
