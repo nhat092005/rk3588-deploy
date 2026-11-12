@@ -1,0 +1,5 @@
+add_library(logger_lib STATIC logger.cpp)
+
+target_include_directories(logger_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_link_libraries(logger_lib PUBLIC Threads::Threads)
