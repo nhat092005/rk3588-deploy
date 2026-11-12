@@ -1,13 +1,14 @@
 #ifndef LOGGER_H
 #define LOGGER_H
 
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 
 class Logger {
 public:
-    enum Level { NONE = 0, ERROR, WARN, INFO, DEBUG, VERBOSE };
+    enum Level : std::uint8_t { NONE = 0, ERROR, WARN, INFO, DEBUG, VERBOSE };
 
     static void setGlobalLevel(Level level);
     static void setLevel(const std::string& tag, Level level);
@@ -18,9 +19,9 @@ private:
     static std::string getTimestamp();
     static const char* levelColor(Level level);
 
-    static Level m_globalLevel;
-    static std::unordered_map<std::string, Level> m_tagLevels;
-    static std::mutex m_mutex;
+    static Level globalLevel;
+    static std::unordered_map<std::string, Level> tagLevels;
+    static std::mutex logMutex;
 
     static constexpr const char* COLOR_RESET = "\033[0m";
 
