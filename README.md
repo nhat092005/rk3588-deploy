@@ -15,3 +15,5 @@ Planned layout (nothing migrated yet):
 | `tests/` | Correctness tests against `rk3588-common` golden outputs |
 
 Build files (`CMakeLists.txt`) are added when the first source is migrated.
+
+Shared pre/post-processing lives in `rk3588-common`. Run from the `rk3588` meta-repo checkout: it pins `rk3588-common` and copies `common/python/` to the board together with this repo.
