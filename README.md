@@ -27,7 +27,30 @@ Shared pre/post-processing lives in `rk3588-common`. Run from the `rk3588` meta-
 | `make format` / `make tidy` | clang-format / clang-tidy over `app/`, `library/`, `test/` |
 | `make clean` / `make distclean` | Drop objects / drop `build/` |
 
-Overrides: `make BUILD_TYPE=Release`, `make BUILD_DIR=out`. Cross-compile toolchain for aarch64 is not set up yet (unknown, to decide).
+Overrides: `make BUILD_TYPE=Release`, `make BUILD_DIR=out`.
+
+## Cross-compile for the board
+
+Target: Orange Pi 5, Ubuntu 22.04 (glibc 2.35, gcc 11.4), librknnrt 2.3.2, driver 0.9.8.
+
+1. `sudo apt install g++-11-aarch64-linux-gnu`.
+2. Copy the board's `/usr/include` and `/usr/lib` to `~/sysroots/orangepi5` (rsync, skip LLVM, dri, python, firmware, modules).
+3. `cmake -S . -B build-arm -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-toolchain.cmake && cmake --build build-arm`.
+
+The toolchain file forces the sysroot headers and libs. Without that the cross package's glibc 2.39 wins and the binary needs `GLIBC_2.38`, which the board lacks.
+
+After any build for the board, check `aarch64-linux-gnu-objdump -T <binary> | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1` is at most `GLIBC_2.35`. Re-sync the sysroot when the board OS or `librknnrt` changes.
+
+## Probes
+
+`probes/` is built only with `-DBUILD_PROBES=ON -DRKNN_API_INCLUDE_DIR=<dir with rknn_api.h 2.3.2>`. Where `rknn_api.h` lives in the meta-repo is not decided yet.
+
+| Binary | Check |
+|---|---|
+| `probe_link` | RGA version, MPP H.265 encoder init, `librknnrt` rejects a junk model. Prints `PASS`, exit code 0 |
+| `probe_infer` | `probe_infer model.rknn loops [input.raw output.f32]`: repeated inference, optional raw dump of the first output |
+
+Checked on the board 2026-11-13: `probe_link` PASS, `probe_infer` on `ppe5_yolov8n_baseline_100ep_s0` int8, output identical to RKNNLite for 5 `css_test` images (same preprocess md5).
 
 ## Conventions
 

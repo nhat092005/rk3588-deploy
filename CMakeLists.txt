@@ -27,3 +27,8 @@ find_package(Threads REQUIRED)
 add_subdirectory(app)
 add_subdirectory(library)
 add_subdirectory(test)
+
+option(BUILD_PROBES "Build board hardware probes (needs rknn_api.h, see probes/CMakeLists.txt)" OFF)
+if(BUILD_PROBES)
+    add_subdirectory(probes)
+endif()

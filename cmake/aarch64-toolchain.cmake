@@ -14,6 +14,13 @@ if(NOT RK3588_SYSROOT)
     endif()
 endif()
 
+if(NOT EXISTS "${RK3588_SYSROOT}/usr/include/c++/11")
+    message(
+        FATAL_ERROR
+            "Sysroot not found at ${RK3588_SYSROOT}. Copy /usr/include and /usr/lib from the board (rsync) or pass -DRK3588_SYSROOT=<path>."
+    )
+endif()
+
 set(CMAKE_C_COMPILER aarch64-linux-gnu-gcc-11)
 set(CMAKE_CXX_COMPILER aarch64-linux-gnu-g++-11)
 set(CMAKE_SYSROOT "${RK3588_SYSROOT}")
