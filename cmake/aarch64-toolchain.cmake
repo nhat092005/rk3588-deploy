@@ -23,3 +23,37 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+
+# The cross package ships glibc 2.39 headers and libs that win over the sysroot by default, so binaries can
+# need symbols the board lacks (for example GLIBC_2.38 via __isoc23_strtol). Force headers and libs of the
+# board: drop the default include dirs and list them explicitly, and put the sysroot lib dirs first.
+execute_process(
+    COMMAND ${CMAKE_C_COMPILER} -print-file-name=include
+    OUTPUT_VARIABLE RK3588_GCC_INCLUDE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+set(RK3588_C_INCLUDES
+    -nostdinc
+    -isystem ${RK3588_GCC_INCLUDE}
+    -isystem ${RK3588_SYSROOT}/usr/include/aarch64-linux-gnu
+    -isystem ${RK3588_SYSROOT}/usr/include
+)
+set(RK3588_CXX_INCLUDES
+    -nostdinc
+    -isystem ${RK3588_SYSROOT}/usr/include/c++/11
+    -isystem ${RK3588_SYSROOT}/usr/include/aarch64-linux-gnu/c++/11
+    -isystem ${RK3588_SYSROOT}/usr/include/c++/11/backward
+    -isystem ${RK3588_GCC_INCLUDE}
+    -isystem ${RK3588_SYSROOT}/usr/include/aarch64-linux-gnu
+    -isystem ${RK3588_SYSROOT}/usr/include
+)
+string(REPLACE ";" " " RK3588_C_INCLUDES_STR "${RK3588_C_INCLUDES}")
+string(REPLACE ";" " " RK3588_CXX_INCLUDES_STR "${RK3588_CXX_INCLUDES}")
+set(CMAKE_C_FLAGS_INIT "${RK3588_C_INCLUDES_STR}")
+set(CMAKE_CXX_FLAGS_INIT "${RK3588_CXX_INCLUDES_STR}")
+
+set(RK3588_LINK_DIRS
+    "-L${RK3588_SYSROOT}/usr/lib/gcc/aarch64-linux-gnu/11 -L${RK3588_SYSROOT}/usr/lib/aarch64-linux-gnu -L${RK3588_SYSROOT}/usr/lib"
+)
+set(CMAKE_EXE_LINKER_FLAGS_INIT "${RK3588_LINK_DIRS} -Wl,-rpath-link,${RK3588_SYSROOT}/usr/lib/aarch64-linux-gnu")
+set(CMAKE_SHARED_LINKER_FLAGS_INIT "${RK3588_LINK_DIRS}")
