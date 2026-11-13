@@ -1,0 +1,13 @@
+# Board venv (Orange Pi 5, Ubuntu 22.04, Python 3.10, aarch64), built by sh/setup_board.sh from the board root.
+# numpy and opencv pinned to the PC versions so resize and letterbox give the same pixels (rk3588_common.model_io).
+numpy==1.26.4
+opencv-python-headless==4.11.0.86
+psutil==7.2.2
+PyYAML==6.0.3
+# Newest cp310 aarch64 release on PyPI (the PC has 1.26.0, which has no cp310 wheel)
+onnxruntime==1.23.2
+# Runs the rk3588_common tests on the board (meta-repo make test-board), same version as the PC
+pytest==9.2.0
+# RKNN-Toolkit-Lite2, path relative to the board root (copied by the meta-repo make sync-board).
+# Matches the PC rknn-toolkit2 and the board librknnrt 2.3.2.
+3rdparty/rknn-toolkit2/rknn-toolkit-lite2/packages/rknn_toolkit_lite2-2.3.2-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
