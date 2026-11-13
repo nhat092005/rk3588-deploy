@@ -1,4 +1,4 @@
-# .cmake-format.py
+"""Configuration for cmake-format."""
 
 line_width = 100
 tab_size = 4
