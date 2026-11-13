@@ -1,21 +1,36 @@
 # rk3588-deploy
 
-Everything that runs on the Orange Pi 5 (RK3588): C++ app, board-side Python harness, benchmarks of the app. C++ scaffold comes from `prj-template` (CMake, clang-format, clang-tidy, Makefile wrapper, `logger` example).
+The product side on the Orange Pi 5 (RK3588): the C++ app, its board-side Python, and the board environment (venv, frequency lock, rknn_server). Research measurements of models are not here, they belong to `rk3588-ai` (`ai/ai/board/`), see the meta-repo `STANDARDS.md`. C++ scaffold comes from `prj-template` (CMake, clang-format, clang-tidy, Makefile wrapper, `logger` example).
 
-Planned layout (nothing migrated yet except the template):
+| Path | Content | Status |
+|---|---|---|
+| `app/` | Executable entrypoint (`main.cpp`) and app logic: camera, RGA, NPU, post-processing, encoder | Template |
+| `library/` | Internal reusable libraries (currently `logger`) | Template |
+| `test/` | One test executable per `.cpp`, glob-built | Template |
+| `probes/` | RGA, MPP and RKNN link and inference probes | Done |
+| `sh/` | Board environment: `setup_board.sh` (venv), `lock_freq.sh` (fix CPU, NPU, DDR frequency), `start_rknn_server.sh` (PC to board link for RKNN-Toolkit2 tier 1) | Done |
+| `requirements-board.txt` | Board venv packages (Python 3.10), numpy and OpenCV pinned to the PC versions | Done |
+| `python/` | Board-side Python of the app (camera pipeline) | Planned |
+| `bench/` | App benchmarks | Planned |
+| `measurements/` | Board and camera measurements produced by this repo | Planned |
 
-| Path | Content |
+Shared pre/post-processing, telemetry and provenance live in `rk3588-common` (`rk3588_common`). Work from the `rk3588` meta-repo checkout: it pins `rk3588-common` and copies it to the board together with this repo.
+
+## Board
+
+The meta-repo targets fill `~/rk3588-board/` on the board with the meta-repo layout (legacy `~/rk3588` is separate):
+
+| Board path | From |
 |---|---|
-| `app/` | Executable entrypoint (`main.cpp`) and app logic: camera, RGA, NPU, post-processing, encoder |
-| `library/` | Internal reusable libraries (currently `logger`) |
-| `test/` | One test executable per `.cpp`, glob-built |
-| `python/` | Board-side Python harness |
-| `bench/` | App benchmarks |
-| `probes/` | RGA, MPP and other hardware probes |
-| `sh/` | Board setup and frequency lock scripts |
-| `measurements/` | Board and camera measurements produced by this repo |
+| `deploy/bin/` | Cross-built binaries (`make build-board`) |
+| `deploy/sh/`, `deploy/python/`, `deploy/requirements-board.txt` | This repo |
+| `common/python/`, `common/tests/` | `rk3588-common` |
+| `3rdparty/rknn-toolkit2/rknn-toolkit-lite2/packages/*.whl` | RKNN-Toolkit-Lite2 2.3.2 wheel |
+| `.venv/` | Created on the board by `sh/setup_board.sh`, with a `.pth` that puts `common/python` on the path |
 
-Shared pre/post-processing lives in `rk3588-common`. Run from the `rk3588` meta-repo checkout: it pins `rk3588-common` and copies `common/python/` to the board together with this repo.
+From the meta-repo root: `make sync-board`, then `make setup-board` once (and after `requirements-board.txt` changes), then `make check-board`.
+
+`lock_freq.sh` needs root. The board has a copy in `/usr/local/sbin/lock_freq.sh` that the user may run with passwordless sudo: `sudo -n /usr/local/sbin/lock_freq.sh lock|unlock|status`. Its code must equal `sh/lock_freq.sh` (comments may differ), `make check-board` compares them. After editing `sh/lock_freq.sh`, reinstall the copy with sudo.
 
 ## Build
 
@@ -43,7 +58,7 @@ After any build for the board, check `aarch64-linux-gnu-objdump -T <binary> | gr
 
 ## Probes
 
-`probes/` is built only with `-DBUILD_PROBES=ON -DRKNN_API_INCLUDE_DIR=<dir with rknn_api.h 2.3.2>`. Where `rknn_api.h` lives in the meta-repo is not decided yet.
+`probes/` is built only with `-DBUILD_PROBES=ON`. `rknn_api.h` 2.3.2 comes from the meta-repo submodule `3rdparty/rknn-toolkit2` (default `RKNN_API_INCLUDE_DIR`), fetched by `make init`.
 
 | Binary | Check |
 |---|---|
