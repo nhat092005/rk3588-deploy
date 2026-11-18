@@ -2,6 +2,7 @@
 #define APP_OPTIONS_H
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -33,10 +34,18 @@ constexpr int maxKeepDays{3650};
 /** @brief Largest camera side accepted, in pixels. */
 constexpr int maxCameraSide{16'384};
 
-/** @brief Everything the user can set on the command line. The rest is fixed in the code. */
+/** @brief Where the default config file is, below the folder of the application (see parseOptions).
+ */
+constexpr std::string_view defaultConfigFile{"resource/config/app_config.json"};
+
+/** @brief Everything the user can set in the config file or on the command line. The rest is fixed
+ *         in the code. */
 struct AppOptions {
     /** Path of the .rknn model. Required, no default. */
     std::string_view modelPath;
+    /** The config file to read instead of the default one. Empty: the default file, if it exists.
+     */
+    std::string_view configPath;
     /** Camera capture node and the frame size to ask for. */
     std::string_view cameraNode{defaultCameraNode};
     int width{defaultCameraWidth};
@@ -60,7 +69,7 @@ struct AppOptions {
      *  violation this many days. The oldest go first. */
     double maxStorageGb{defaultMaxStorageGb};
     int keepDays{defaultKeepDays};
-    /** Continuous recording of the video, off unless --record is given: the segments go to
+    /** Continuous recording of the video, off unless --record true is given: the segments go to
      *  recordDir, recordSegmentSeconds long, within their own size and age limits. */
     bool record{false};
     std::string_view recordDir{defaultRecordRoot};
@@ -76,26 +85,54 @@ struct AppOptions {
 /** @brief What parseOptions found. */
 enum class ParseStatus : std::uint8_t { Run, Help, Invalid };
 
-/** @brief The result of parseOptions: `options` is meaningful only when `status` is Run. */
+/**
+ * @brief The result of parseOptions: `options` is meaningful only when `status` is Run.
+ *
+ * The text fields of `options` refer to the command line and to `storage`, so the result is
+ * move-only and must outlive every use of `options`.
+ */
 struct ParseResult {
+    ParseResult() = default;
+    ParseResult(const ParseResult&) = delete;
+    ParseResult& operator=(const ParseResult&) = delete;
+    ParseResult(ParseResult&&) noexcept = default;
+    ParseResult& operator=(ParseResult&&) noexcept = default;
+    ~ParseResult() = default;
+
     ParseStatus status{ParseStatus::Invalid};
     AppOptions options;
+    /** The strings that the config file gave. Never resized after the file was read. */
+    std::vector<std::string> storage;
 };
 
 /**
- * @brief Reads the command line: `--name value` pairs in any order (a flag given twice keeps its
- *        last value), and `--help`.
+ * @brief Builds the options from the defaults, then the config file, then the command line: a
+ *        later source wins.
  * @param args The command line from commandLine(), the first entry is the program name.
+ * @param baseDir The folder of the application (`.../deploy`, see executableBaseDirectory()), or
+ *        empty for none. The default config file is `<baseDir>/resource/config/app_config.json`,
+ *        read when it exists, and a relative `model` in a config file is relative to `baseDir`.
  * @param log Logger that receives the usage text and the reason of a failure.
- * @return Run with the options, Help after `--help` (the usage was logged), or Invalid on an
- *         unknown flag, a missing or bad value, or a missing --model (the reason was logged).
+ * @return Run with the options, Help when `--help` is among the arguments (the usage was logged),
+ *         or Invalid on an unknown flag or key, a missing or bad value, a config file that cannot
+ *         be read or is not valid, or a missing model (the reason was logged).
  *
- * The flags: --model, --node, --width, --height, --rotation, --output-dir, --video-kbps,
- * --jpeg-quality, --hold-seconds, --gap-seconds, --min-confidence, --clip-pre-seconds,
- * --clip-post-seconds, --max-storage-gb, --keep-days, --record (no value), --record-dir,
- * --record-segment-seconds, --record-max-storage-gb, --record-keep-days, --frames, --stats-seconds.
- * The values are checked against the ranges of the libraries that use them.
+ * The command line is `--name value` pairs in any order (a flag given twice keeps its last
+ * value), `--config <file>` to read another config file (it must exist), and `--help`. The flags:
+ * --model, --node, --width, --height, --rotation, --video-kbps, --jpeg-quality, --hold-seconds,
+ * --gap-seconds, --min-confidence, --violation-output-dir, --clip-pre-seconds,
+ * --clip-post-seconds, --max-storage-gb, --keep-days, --record (true or false),
+ * --record-output-dir, --record-segment-seconds, --record-max-storage-gb, --record-keep-days,
+ * --frames, --stats-seconds.
+ *
+ * The config file is one JSON object: `model` at the top and the other options in groups
+ * (`camera`, `encode`, `rule`, `violation`, `record`, `run`), for example
+ * `{"model": "m.rknn", "camera": {"width": 3840}, "record": {"enabled": true}}`. Every key is
+ * optional. A key has the kind of value of its flag (`width` is a number, `node` a string,
+ * `record.enabled` true or false) and the same range. The place of each key is in the table of
+ * flags in app_options.cpp.
  */
-ParseResult parseOptions(const std::vector<const char*>& args, const Logger& log);
+ParseResult parseOptions(const std::vector<const char*>& args, std::string_view baseDir,
+                         const Logger& log);
 
 #endif // APP_OPTIONS_H

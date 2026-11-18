@@ -40,6 +40,7 @@ foreach(TEST_SRC ${TEST_SOURCES})
                 stats_lib
                 clip_lib
                 record_lib
+                config_lib
     )
     if(CMAKE_CROSSCOMPILING)
         target_link_libraries(

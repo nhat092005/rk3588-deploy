@@ -2,7 +2,7 @@
 
 Runs the real Ultralytics ``BYTETracker`` (from the repo ``.venv``),
 ``lap.lapjv`` and ``KalmanFilterXYAH`` on seeded synthetic data and
-prints ``test/tracker/tracker_fixture.h`` to stdout. The C++ port must
+prints ``test/vision/tracker/tracker_fixture.h`` to stdout. The C++ port must
 reproduce every identifier and box. Needs the ``lap`` package, which
 ``ai/pyproject.toml`` pins (``make sync``) and Ultralytics loads for
 the tracker.

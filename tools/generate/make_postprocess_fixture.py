@@ -2,7 +2,7 @@
 
 Reads the model_io fixtures of rk3588-common (three real INT8 board
 outputs and the detections that ``model_io.postprocess_raw`` returns
-for them) and prints ``test/postproc/postprocess_fixture.h`` to stdout.
+for them) and prints ``test/vision/postproc/postprocess_fixture.h`` to stdout.
 Usage: make_postprocess_fixture.py common/tests > out.h
 """
 
