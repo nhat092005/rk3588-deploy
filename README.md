@@ -6,7 +6,8 @@ The product side on the Orange Pi 5 (RK3588): the C++ app, board-side Python and
 
 | Path | Content |
 |---|---|
-| `app/` | The product executable `rk3588_deploy`: reads the command line, runs the pipeline until SIGINT, SIGTERM or `--frames` frames |
+| `app/` | The product executable `rk3588_deploy`: reads the config file and the command line, runs the pipeline until SIGINT, SIGTERM or `--frames` frames |
+| `resource/` | `config/app_config.json` (every option, at its default) and `rknn/` (the model, ignored by git). Copied to the board by `make sync-board` |
 | `library/` | Reusable libraries, one folder each (table below) |
 | `probes/` | Board hardware probes: `device/`, `stage/`, `pipeline/` (table below) |
 | `test/` | One test executable per `.cpp`, in a folder named after the library it tests |
@@ -29,7 +30,47 @@ Build on the PC, run on the board. From this directory:
 
 Sysroot, copy to the board, board venv: `make sysroot`, `make sync-board`, `make setup-board` from the meta-repo root (see its `README.md`). Binaries land in `~/rk3588-board/deploy/bin/` with the layout of the source tree: `rk3588_deploy`, `probes/<group>/probe_*`, `test/<library>/test_*`, for example `bin/test/store/test_volume`.
 
-Run: `rk3588_deploy --model <file.rknn> [--record]`. `rk3588_deploy --help` lists every flag.
+Run: `rk3588_deploy` reads `resource/config/app_config.json` (next to `bin/`, whatever the current folder) and runs with it. A command-line flag wins over the file, the file over the defaults of the code:
+
+```
+./rk3588_deploy                                   # the file only
+./rk3588_deploy --rotation 180 --record true      # the file, with two flags on top
+./rk3588_deploy --config other.json               # another file (it must exist)
+./rk3588_deploy --model m.rknn                    # no file needed: defaults and flags
+```
+
+A relative `model` in a config file is relative to the folder that holds `bin/`. A missing default file is not an error, a broken one is. `rk3588_deploy --help` lists every flag.
+
+### Options
+
+Every key of the file is optional (a missing key keeps its default) except `model`, which the file or `--model` must give. A key has the kind of value shown and the range of its flag. An unknown key or group, a key in the wrong group, a wrong kind of value or a value out of range stops the app with the place of the key (`camera.width`).
+
+| Key in `app_config.json` | Flag | Default | Kind, range |
+|---|---|---|---|
+| `model` | `--model` | none | string, required |
+| `camera.node` | `--node` | `/dev/video11` | string |
+| `camera.width` | `--width` | 3840 | number, even, 2 to 16384 |
+| `camera.height` | `--height` | 2160 | number, even, 2 to 16384 |
+| `camera.rotation` | `--rotation` | 0 | number: 0, 90, 180 or 270 degrees clockwise |
+| `encode.video_kbps` | `--video-kbps` | 20000 | number, 1 to 200000 |
+| `encode.jpeg_quality` | `--jpeg-quality` | 90 | number, 1 to 99 |
+| `rule.hold_seconds` | `--hold-seconds` | 1.0 | number, above 0 to 86400 |
+| `rule.gap_seconds` | `--gap-seconds` | 0.5 | number, 0 to 86400 |
+| `rule.min_confidence` | `--min-confidence` | 0.25 | number, 0 to 1 |
+| `violation.output_dir` | `--violation-output-dir` | `/data/violations` | string, the folder must exist |
+| `violation.clip_pre_seconds` | `--clip-pre-seconds` | 5.0 | number, 0 to 60 |
+| `violation.clip_post_seconds` | `--clip-post-seconds` | 5.0 | number, 0 to 60 (both 0: no clip) |
+| `violation.max_storage_gb` | `--max-storage-gb` | 4.0 | number, above 0 to 100000 |
+| `violation.keep_days` | `--keep-days` | 30 | number, 1 to 3650 |
+| `record.enabled` | `--record` | `false` | `true` or `false` |
+| `record.output_dir` | `--record-output-dir` | `/data/records` | string |
+| `record.segment_seconds` | `--record-segment-seconds` | 60 | number, above 0 to 3600 |
+| `record.max_storage_gb` | `--record-max-storage-gb` | 5.0 | number, above 0 to 100000 |
+| `record.keep_days` | `--record-keep-days` | 7 | number, 1 to 3650 |
+| `run.frames` | `--frames` | 0 | number, 0 to 10^12 (0: no limit) |
+| `run.stats_seconds` | `--stats-seconds` | 1.0 | number, above 0 to 3600 |
+
+`--config <file>` and `--help` have no key. On the command line every flag takes a value, `--record` too (`--record true` or `--record false`), so that a flag can turn off what the file turned on.
 
 ## Pipeline
 
@@ -38,7 +79,7 @@ camera -> letterbox (RGA) -> NPU -> tracker -> rule -> draw -> H.265
                                                   \-> JPEG + clip (violation)
 ```
 
-Four threads (five with `--record`), each pinned to its own big core. A full queue drops the frame and counts it, it never blocks the producer.
+Four threads (five with `--record true`), each pinned to its own big core. A full queue drops the frame and counts it, it never blocks the producer.
 
 | Thread | Work |
 |---|---|
@@ -46,7 +87,7 @@ Four threads (five with `--record`), each pinned to its own big core. A full que
 | NPU | inference, decode, tracker, rule |
 | writer | RGA upright copy, outlines and labels, H.265, clip ring |
 | evidence | 2 JPEGs, `event.json`, `clip.h265`, retention |
-| recorder | continuous segment files (only with `--record`) |
+| recorder | continuous segment files (only with `--record true`) |
 
 Why this layout: `tmp/01_research/2026-11-18_thread-layout-stage7b.md`.
 
@@ -57,7 +98,8 @@ Why this layout: `tmp/01_research/2026-11-18_thread-layout-stage7b.md`.
 | `logger` | Logger passed by the caller, no global logger |
 | `os` | fd, mmap and signal handles, `Mailbox`, CPU pinning |
 | `process` | Command-line arguments |
-| `options` | `parseOptions`: the flags of the app |
+| `options` | `parseOptions`: the config file and the flags of the app |
+| `config` | Flat JSON reader, text file reader, folder of the executable |
 | `dmabuf` | DMA-BUF from a dma-heap |
 | `camera` | V4L2 capture into DMA-BUFs |
 | `rga` | NV12 to letterboxed RGB with rotation, `BoxMapper` (model boxes to image pixels), `RgaOverlay` (outlines), `RgaLabels` (label text) |
