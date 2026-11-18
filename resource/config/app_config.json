@@ -1,0 +1,36 @@
+{
+  "model": "resource/rknn/best-rk3588.rknn",
+  "camera": {
+    "node": "/dev/video11",
+    "width": 3840,
+    "height": 2160,
+    "rotation": 180
+  },
+  "encode": {
+    "video_kbps": 20000,
+    "jpeg_quality": 90
+  },
+  "rule": {
+    "hold_seconds": 1.0,
+    "gap_seconds": 0.5,
+    "min_confidence": 0.25
+  },
+  "violation": {
+    "output_dir": "/data/violations",
+    "clip_pre_seconds": 5.0,
+    "clip_post_seconds": 5.0,
+    "max_storage_gb": 4.0,
+    "keep_days": 30
+  },
+  "record": {
+    "enabled": false,
+    "output_dir": "/data/records",
+    "segment_seconds": 60,
+    "max_storage_gb": 5.0,
+    "keep_days": 7
+  },
+  "run": {
+    "frames": 0,
+    "stats_seconds": 1.0
+  }
+}
