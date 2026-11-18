@@ -1,28 +1,127 @@
-# Board hardware probes. Off by default because they need headers that are not in this repo yet.
-# Build: cmake -S . -B build-arm -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-toolchain.cmake -DBUILD_PROBES=ON
-#        (optional) -DRKNN_API_INCLUDE_DIR=<dir containing rknn_api.h, version 2.3.2>
-# RGA and MPP headers come from the sysroot (usr/include/rga, usr/include/rockchip).
-# Default: the pinned rknn-toolkit2 submodule (v2.3.2) of the rk3588 meta-repo, see its Makefile target `init`.
-if(NOT RKNN_API_INCLUDE_DIR)
-    set(RKNN_API_INCLUDE_DIR
-        "${CMAKE_SOURCE_DIR}/../3rdparty/rknn-toolkit2/rknpu2/runtime/Linux/librknn_api/include"
-    )
-endif()
-if(NOT EXISTS "${RKNN_API_INCLUDE_DIR}/rknn_api.h")
-    message(
-        FATAL_ERROR
-            "rknn_api.h not found in ${RKNN_API_INCLUDE_DIR}. Run `make init` in the rk3588 meta-repo or pass -DRKNN_API_INCLUDE_DIR=."
-    )
-endif()
+# Board hardware probes, built with -DBUILD_PROBES=ON.
+#
+# * Cross-compile only: they link the board libraries.
+# * SDK targets rockchip::rknn, rockchip::rga, rockchip::mpp: cmake/RockchipSdk.cmake.
+# * Optional: -DRKNN_API_INCLUDE_DIR=<dir containing rknn_api.h, version 2.3.2>.
 
-set(SYSROOT_INCLUDE "${CMAKE_SYSROOT}/usr/include")
+# add_probe(<dir> <name> [LIBS <target>...]): build <dir>/<name>.cpp as an executable linked with
+# the logger and LIBS. The executable lands in <build>/probes/<dir>/.
+function(add_probe dir name)
+    cmake_parse_arguments(
+        PROBE
+        ""
+        ""
+        "LIBS"
+        ${ARGN}
+    )
+    add_executable(${name} ${dir}/${name}.cpp)
+    target_link_libraries(${name} PRIVATE logger_lib ${PROBE_LIBS})
+    set_target_properties(
+        ${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${dir}"
+    )
+endfunction()
 
-add_executable(probe_link probe_link.cpp)
-target_include_directories(
-    probe_link PRIVATE "${SYSROOT_INCLUDE}/rga" "${SYSROOT_INCLUDE}/rockchip" "${RKNN_API_INCLUDE_DIR}"
+add_probe(
+    device
+    probe_link
+    LIBS
+    rockchip::rknn
+    rockchip::rga
+    rockchip::mpp
 )
-target_link_libraries(probe_link PRIVATE rga rockchip_mpp rknnrt)
-
-add_executable(probe_infer probe_infer.cpp)
-target_include_directories(probe_infer PRIVATE "${RKNN_API_INCLUDE_DIR}")
-target_link_libraries(probe_infer PRIVATE rknnrt)
+add_probe(
+    device
+    probe_infer
+    LIBS
+    rockchip::rknn
+    process_lib
+)
+add_probe(
+    device
+    probe_camera
+    LIBS
+    camera_lib
+    process_lib
+)
+add_probe(
+    stage
+    probe_letterbox
+    LIBS
+    camera_lib
+    rga_lib
+    process_lib
+)
+add_probe(
+    stage
+    probe_jpeg
+    LIBS
+    camera_lib
+    rga_lib
+    jpeg_lib
+    store_lib
+    process_lib
+)
+add_probe(
+    stage
+    probe_overlay
+    LIBS
+    camera_lib
+    rga_lib
+    jpeg_lib
+    process_lib
+)
+add_probe(
+    stage
+    probe_h265
+    LIBS
+    camera_lib
+    rga_lib
+    video_lib
+    process_lib
+)
+add_probe(
+    device
+    probe_dmabuf
+    LIBS
+    rockchip::rknn
+    rockchip::rga
+    rockchip::mpp
+    dmabuf_lib
+    process_lib
+)
+add_probe(
+    pipeline
+    probe_threads
+    LIBS
+    camera_lib
+    rga_lib
+    npu_lib
+    video_lib
+    jpeg_lib
+    stats_lib
+    process_lib
+)
+add_probe(
+    pipeline
+    probe_output
+    LIBS
+    camera_lib
+    rga_lib
+    pipeline_lib
+    options_lib
+    process_lib
+)
+add_probe(
+    pipeline
+    probe_disk_write
+    LIBS
+    process_lib
+    os_lib
+)
+add_probe(
+    stage
+    probe_tracker
+    LIBS
+    tracker_lib
+    process_lib
+)
