@@ -1,11 +1,19 @@
+# Five pro-* checks are off because OS APIs force what they flag. Wrapper rule: CODING_STANDARD.md 8.1.
 Checks: >
   -*,
   bugprone-*,
-  -bugprone-easily-swappable-parameters,
   performance-*,
   readability-*,
   -readability-simplify-boolean-expr,
-  clang-analyzer-*
+  clang-analyzer-*,
+  cppcoreguidelines-*,
+  -cppcoreguidelines-pro-type-vararg,
+  -cppcoreguidelines-pro-type-union-access,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  misc-const-correctness,
+  cert-err33-c
 
 WarningsAsErrors: ''
 
@@ -25,4 +33,6 @@ CheckOptions:
   - key: readability-identifier-naming.VariableCase
     value: camelBack
   - key: readability-identifier-naming.ConstantCase
+    value: camelBack
+  - key: readability-identifier-naming.MacroDefinitionCase
     value: UPPER_CASE
