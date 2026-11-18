@@ -19,7 +19,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# CODING_STANDARD.md: no exceptions, no RTTI.
+add_compile_options(-fno-exceptions -fno-rtti -Wall -Wextra)
+
 find_package(Threads REQUIRED)
+
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
+include(RockchipSdk)
 
 # ==============================
 # Subdirectories

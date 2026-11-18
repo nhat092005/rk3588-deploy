@@ -1,74 +1,113 @@
 # rk3588-deploy
 
-The product side on the Orange Pi 5 (RK3588): the C++ app, its board-side Python, and the board environment (venv, frequency lock, rknn_server). Research measurements of models are not here, they belong to `rk3588-ai` (`ai/ai/board/`), see the meta-repo `STANDARDS.md`. C++ scaffold comes from `prj-template` (CMake, clang-format, clang-tidy, Makefile wrapper, `logger` example).
+The product side on the Orange Pi 5 (RK3588): the C++ app, board-side Python and the board scripts. Model research is in `rk3588-ai`. Rules: `CODING_STANDARD.md` (C++), meta-repo `STANDARDS.md` (the rest).
 
-| Path | Content | Status |
-|---|---|---|
-| `app/` | Executable entrypoint (`main.cpp`) and app logic: camera, RGA, NPU, post-processing, encoder | Template |
-| `library/` | Internal reusable libraries (currently `logger`) | Template |
-| `test/` | One test executable per `.cpp`, glob-built | Template |
-| `probes/` | RGA, MPP and RKNN link and inference probes | Done |
-| `sh/` | Board environment: `setup_board.sh` (venv), `lock_freq.sh` (fix CPU, NPU, DDR frequency), `start_rknn_server.sh` (PC to board link for RKNN-Toolkit2 tier 1) | Done |
-| `requirements-board.txt` | Board venv packages (Python 3.10), numpy and OpenCV pinned to the PC versions | Done |
-| `python/` | Board-side Python of the app (camera pipeline) | Planned |
-| `bench/` | App benchmarks | Planned |
-| `measurements/` | Board and camera measurements produced by this repo | Planned |
+## Layout
 
-Shared pre/post-processing, telemetry and provenance live in `rk3588-common` (`rk3588_common`). Work from the `rk3588` meta-repo checkout: it pins `rk3588-common` and copies it to the board together with this repo.
-
-## Board
-
-The meta-repo targets fill `~/rk3588-board/` on the board with the meta-repo layout (legacy `~/rk3588` is separate):
-
-| Board path | From |
+| Path | Content |
 |---|---|
-| `deploy/bin/` | Cross-built binaries (`make build-board`) |
-| `deploy/sh/`, `deploy/python/`, `deploy/requirements-board.txt` | This repo |
-| `common/python/`, `common/tests/` | `rk3588-common` |
-| `3rdparty/rknn-toolkit2/rknn-toolkit-lite2/packages/*.whl` | RKNN-Toolkit-Lite2 2.3.2 wheel |
-| `.venv/` | Created on the board by `sh/setup_board.sh`, with a `.pth` that puts `common/python` on the path |
+| `app/` | The product executable `rk3588_deploy`: reads the command line, runs the pipeline until SIGINT, SIGTERM or `--frames` frames |
+| `library/` | Reusable libraries, one folder each (table below) |
+| `probes/` | Board hardware probes: `device/`, `stage/`, `pipeline/` (table below) |
+| `test/` | One test executable per `.cpp`, in a folder named after the library it tests |
+| `sh/env/` | Board setup: `setup_board.sh`, `lock_freq.sh`, `start_rknn_server.sh`, `install_udev_rules.sh` (installs `99-rk3588-deploy.rules`), `run_tests.sh` (runs every C++ test on the board) |
+| `sh/record/` | Record the ISP streams to MP4 with the VPU: `rec_4k.sh`, `rec_640x360.sh`, `rec_both.sh` |
+| `tools/check/` | PC scripts that check what a probe or the app wrote (table below) |
+| `tools/generate/` | PC scripts that write generated headers (table below) |
+| `python/`, `bench/`, `measurements/` | Planned: board-side Python, benchmarks, measurements |
 
-From the meta-repo root: `make sync-board`, then `make setup-board` once (and after `requirements-board.txt` changes), then `make check-board`.
+## Build and run
 
-`lock_freq.sh` needs root. The board has a copy in `/usr/local/sbin/lock_freq.sh` that the user may run with passwordless sudo: `sudo -n /usr/local/sbin/lock_freq.sh lock|unlock|status`. Its code must equal `sh/lock_freq.sh` (comments may differ), `make check-board` compares them. After editing `sh/lock_freq.sh`, reinstall the copy with sudo.
-
-## Build
+Build on the PC, run on the board. From this directory:
 
 | Command | Action |
 |---|---|
-| `make` | Configure and build |
-| `make run` | Build, run `build/app/rk3588_deploy` |
-| `make test` | Build, run every executable under `build/test/` |
-| `make format` / `make tidy` | clang-format / clang-tidy over `app/`, `library/`, `test/` |
-| `make clean` / `make distclean` | Drop objects / drop `build/` |
+| `make` | Cross-compile into `build-arm/` (probes included) |
+| `make TOOLCHAIN= BUILD_DIR=build` | Native build on the PC, no probes |
+| `make format`, `make tidy` | clang-format, clang-tidy |
+| `make help` | All targets and variables |
 
-Overrides: `make BUILD_TYPE=Release`, `make BUILD_DIR=out`.
+Sysroot, copy to the board, board venv: `make sysroot`, `make sync-board`, `make setup-board` from the meta-repo root (see its `README.md`). Binaries land in `~/rk3588-board/deploy/bin/` with the layout of the source tree: `rk3588_deploy`, `probes/<group>/probe_*`, `test/<library>/test_*`, for example `bin/test/store/test_volume`.
 
-## Cross-compile for the board
+Run: `rk3588_deploy --model <file.rknn> [--record]`. `rk3588_deploy --help` lists every flag.
 
-Target: Orange Pi 5, Ubuntu 22.04 (glibc 2.35, gcc 11.4), librknnrt 2.3.2, driver 0.9.8.
+## Pipeline
 
-1. `sudo apt install g++-11-aarch64-linux-gnu`.
-2. Copy the board's `/usr/include` and `/usr/lib` to `~/sysroots/orangepi5` (rsync, skip LLVM, dri, python, firmware, modules).
-3. `cmake -S . -B build-arm -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-toolchain.cmake && cmake --build build-arm`.
+```
+camera -> letterbox (RGA) -> NPU -> tracker -> rule -> draw -> H.265
+                                                  \-> JPEG + clip (violation)
+```
 
-The toolchain file forces the sysroot headers and libs. Without that the cross package's glibc 2.39 wins and the binary needs `GLIBC_2.38`, which the board lacks.
+Four threads (five with `--record`), each pinned to its own big core. A full queue drops the frame and counts it, it never blocks the producer.
 
-After any build for the board, check `aarch64-linux-gnu-objdump -T <binary> | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1` is at most `GLIBC_2.35`. Re-sync the sysroot when the board OS or `librknnrt` changes.
+| Thread | Work |
+|---|---|
+| camera | V4L2 dequeue, RGA letterbox |
+| NPU | inference, decode, tracker, rule |
+| writer | RGA upright copy, outlines and labels, H.265, clip ring |
+| evidence | 2 JPEGs, `event.json`, `clip.h265`, retention |
+| recorder | continuous segment files (only with `--record`) |
+
+Why this layout: `tmp/01_research/2026-11-18_thread-layout-stage7b.md`.
+
+## Libraries
+
+| Library | Role |
+|---|---|
+| `logger` | Logger passed by the caller, no global logger |
+| `os` | fd, mmap and signal handles, `Mailbox`, CPU pinning |
+| `process` | Command-line arguments |
+| `options` | `parseOptions`: the flags of the app |
+| `dmabuf` | DMA-BUF from a dma-heap |
+| `camera` | V4L2 capture into DMA-BUFs |
+| `rga` | NV12 to letterboxed RGB with rotation, `BoxMapper` (model boxes to image pixels), `RgaOverlay` (outlines), `RgaLabels` (label text) |
+| `label` | 8x16 font, label text, bitmap and placement |
+| `npu` | RKNN model, zero-copy input from a `DmaBuf` |
+| `postproc` | YOLO output to detections |
+| `tracker` | ByteTrack, port of Ultralytics (AGPL-3.0) with a port of lap's lapjv (BSD-2-Clause) |
+| `rule` | Violation: NoHelmet or NoVest on a tracked Person for a hold time |
+| `mpp` | `MppSource`: a DMA-BUF imported into MPP, shared by the encoders |
+| `jpeg` | Hardware JPEG of an NV12 snapshot (the RGA copy is in `rga`) |
+| `video` | `VideoEncoder`: hardware H.265, constant bitrate, key frame check (`hevc_nal`) |
+| `clip` | `ClipRecorder`: pre-roll ring and clips of the H.265 stream |
+| `record` | `PacketQueue`, `SegmentWriter`, `RecordingRetention`: continuous H.265 segments within age, size and free-space limits |
+| `store` | `ViolationStore` writes a violation to `/data/violations`; `ViolationRetention` keeps the folder within age, size and free-space limits and removes only what the store wrote |
+| `stats` | `StageStats`: per-thread timing |
+| `pipeline` | `Pipeline` and its threads: `OutputBranch`, `EvidenceWorker`, `RecordWorker` |
 
 ## Probes
 
-`probes/` is built only with `-DBUILD_PROBES=ON`. `rknn_api.h` 2.3.2 comes from the meta-repo submodule `3rdparty/rknn-toolkit2` (default `RKNN_API_INCLUDE_DIR`), fetched by `make init`.
+Usage of each probe is in its file header. Exit code 0 and a last log line `PASS` mean success.
 
-| Binary | Check |
+| Folder | Probe | Checks |
+|---|---|---|
+| `device/` | `probe_link` | RGA version, MPP H.265 encoder init, `librknnrt` rejects a junk model |
+| | `probe_infer` | Repeated inference of one `.rknn` model: time, memory |
+| | `probe_camera` | V4L2 capture of one node: crop, NV12 format, FPS, dropped frames |
+| | `probe_dmabuf` | DMA-BUF heaps with RGA, RKNN and an MPP H.265 encode |
+| `stage/` | `probe_letterbox` | RGA letterbox of a camera frame, then `tools/check/check_letterbox.py` |
+| | `probe_jpeg` | RGA upright copy then MPP JPEG, timings, then `tools/check/check_jpeg.py` |
+| | `probe_overlay` | RGA outlines and labels on a real 4K frame, timings, JPEG |
+| | `probe_h265` | H.265 of real 4K frames: timings, bitrate, free `lowHeap` space |
+| | `probe_tracker` | Time of `ByteTracker::update` with seeded moving people (run pinned: `taskset -c 6`) |
+| `pipeline/` | `probe_threads` | Thread layouts on real devices (designs `main`, `seq`, `two`, `async`, `three`) |
+| | `probe_output` | Output branch and evidence thread with made-up violations, then `tools/check/check_output.py` |
+| | `probe_disk_write` | Write, fsync and rename latency of the disk under a continuous recording |
+
+## Tools
+
+| Script | Use |
 |---|---|
-| `probe_link` | RGA version, MPP H.265 encoder init, `librknnrt` rejects a junk model. Prints `PASS`, exit code 0 |
-| `probe_infer` | `probe_infer model.rknn loops [input.raw output.f32]`: repeated inference, optional raw dump of the first output |
-
-Checked on the board 2026-11-13: `probe_link` PASS, `probe_infer` on `ppe5_yolov8n_baseline_100ep_s0` int8, output identical to RKNNLite for 5 `css_test` images (same preprocess md5).
+| `check/nv12_to_png.py` | Show a raw NV12 frame as PNG |
+| `check/check_letterbox.py` | Compare the RGA letterbox with `model_io.preprocess` (range `full` or `limited`) |
+| `check/check_jpeg.py` | Compare a JPEG with its NV12 source |
+| `check/check_output.py` | Check the files of one violation: two JPEGs and the clip |
+| `check/check_recordings.py` | Decode every recording segment and count its frames |
+| `generate/make_label_font.py` | Write `library/label/label_font.h` |
+| `generate/make_postprocess_fixture.py` | Write the post-processing test data |
+| `generate/make_tracker_fixture.py` | Write the tracker test data (needs `lap`, declared in `ai/pyproject.toml`: `make sync`) |
 
 ## Conventions
 
-- Module with real state or instances: split `.h` and `.cpp`. Static-only utility or template: header-only `.hpp`.
-- New library: create `library/<name>/` with its `CMakeLists.txt`, add `add_subdirectory(<name>)` to `library/CMakeLists.txt`, link with `target_link_libraries(... <name>_lib)`.
-- `middleware/`, `bsp/`, `resource/`, `models/` are not scaffolded. Add them when needed.
+- Every module gets a `Logger` from its caller. There is no global logger.
+- New library: `library/<name>/` with its `CMakeLists.txt`, `add_subdirectory(<name>)` in `library/CMakeLists.txt`, link `<name>_lib`.

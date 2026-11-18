@@ -1,0 +1,5 @@
+# dma-heap "reserved" is the CMA region of this kernel (cma=128M, below 4 GB). The RGA2 draws only
+# on memory below 4 GB, and buffers of the "system" heap are often above it, so the buffers that
+# the RGA2 draws on come from here. The vendor rules (99-rockchip-permissions.rules) list the heap
+# names of other kernels ("cma", "system-dma32") and not this one.
+SUBSYSTEM=="dma_heap", KERNEL=="reserved", GROUP="video", MODE="0660"

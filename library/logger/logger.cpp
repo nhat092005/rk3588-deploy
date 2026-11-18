@@ -1,100 +1,199 @@
 #include "logger.h"
 
-#include <chrono>
-#include <cstdarg>
-#include <cstdio>
+#include <cerrno>
+#include <charconv>
+#include <cstring>
 #include <ctime>
-#include <iomanip>
-#include <sstream>
+#include <system_error>
+
+#include <unistd.h>
 
 namespace {
-constexpr int MILLIS_PER_SECOND = 1000;
+constexpr std::string_view colorReset{"\033[0m"};
+constexpr std::string_view colorRed{"\033[31m"};
+constexpr std::string_view colorYellow{"\033[33m"};
+constexpr std::string_view colorGreen{"\033[32m"};
+constexpr std::string_view colorBlue{"\033[34m"};
+constexpr std::string_view colorWhite{"\033[37m"};
+constexpr std::size_t numberCapacity{48};
+constexpr std::size_t errnoTextCapacity{128};
+constexpr std::size_t timestampCapacity{32};
+constexpr int tmYearBase{1900};
+constexpr long nanosPerMilli{1'000'000};
+
+unsigned long long nonNegative(long long value) noexcept {
+    return value < 0 ? 0ULL : static_cast<unsigned long long>(value);
+}
+
+std::string_view levelColor(LogLevel level) noexcept {
+    switch (level) {
+    case LogLevel::Error:
+        return colorRed;
+    case LogLevel::Warn:
+        return colorYellow;
+    case LogLevel::Info:
+        return colorGreen;
+    case LogLevel::Debug:
+        return colorBlue;
+    case LogLevel::Verbose:
+        return colorWhite;
+    case LogLevel::None:
+        return colorReset;
+    }
+    return colorReset;
+}
+
+char levelLetter(LogLevel level) noexcept {
+    switch (level) {
+    case LogLevel::Error:
+        return 'E';
+    case LogLevel::Warn:
+        return 'W';
+    case LogLevel::Info:
+        return 'I';
+    case LogLevel::Debug:
+        return 'D';
+    case LogLevel::Verbose:
+        return 'V';
+    case LogLevel::None:
+        return ' ';
+    }
+    return ' ';
+}
+
+// Local time as "YYYY-MM-DD hh:mm:ss.mmm". Appends nothing when the clock cannot be read.
+void appendTimestamp(LogLine& line) noexcept {
+    timespec now{};
+    if (clock_gettime(CLOCK_REALTIME, &now) != 0) {
+        return;
+    }
+    std::tm parts{};
+    if (localtime_r(&now.tv_sec, &parts) == nullptr) {
+        return;
+    }
+    line.appendPadded(nonNegative(parts.tm_year + tmYearBase), Radix::Decimal, 4);
+    line.append('-');
+    line.appendPadded(nonNegative(parts.tm_mon + 1), Radix::Decimal, 2);
+    line.append('-');
+    line.appendPadded(nonNegative(parts.tm_mday), Radix::Decimal, 2);
+    line.append(' ');
+    line.appendPadded(nonNegative(parts.tm_hour), Radix::Decimal, 2);
+    line.append(':');
+    line.appendPadded(nonNegative(parts.tm_min), Radix::Decimal, 2);
+    line.append(':');
+    line.appendPadded(nonNegative(parts.tm_sec), Radix::Decimal, 2);
+    line.append('.');
+    line.appendPadded(nonNegative(now.tv_nsec / nanosPerMilli), Radix::Decimal, 3);
+}
+
+// write() the whole text. A failed write cannot be reported anywhere, so the line is dropped.
+void writeAll(int descriptor, std::string_view text) noexcept {
+    while (!text.empty()) {
+        const ssize_t written{write(descriptor, text.data(), text.size())};
+        if (written > 0) {
+            text.remove_prefix(static_cast<std::size_t>(written));
+        } else if (written == 0 || errno != EINTR) {
+            return;
+        }
+    }
+}
 } // namespace
 
-Logger::Level Logger::globalLevel = Logger::INFO;
-std::unordered_map<std::string, Logger::Level> Logger::tagLevels;
-std::mutex Logger::logMutex;
-
-void Logger::setGlobalLevel(Level level) {
-    std::lock_guard<std::mutex> lock(logMutex);
-    globalLevel = level;
-}
-
-void Logger::setLevel(const std::string& tag, Level level) {
-    std::lock_guard<std::mutex> lock(logMutex);
-    tagLevels[tag] = level;
-}
-
-Logger::Level Logger::getLevel(const std::string& tag) {
-    auto found = tagLevels.find(tag);
-    if (found != tagLevels.end()) {
-        return found->second;
-    }
-
-    return globalLevel;
-}
-
-void Logger::log(Level level, const char* tag, const char* fmt, ...) {
-    {
-        std::lock_guard<std::mutex> lock(logMutex);
-        if (level > globalLevel) {
+void LogLine::append(std::string_view text) noexcept {
+    for (const char character : text) {
+        if (used == capacity) {
             return;
         }
-        auto found = tagLevels.find(tag);
-        Level tagLevel = (found != tagLevels.end()) ? found->second : globalLevel;
-
-        if (level > tagLevel) {
-            return;
-        }
+        buffer.at(used) = character;
+        ++used;
     }
-    static const char* levelStr[] = {"", "E", "W", "I", "D", "V"};
-    va_list args;
-    va_start(args, fmt);
-    {
-        std::lock_guard<std::mutex> lock(logMutex);
-        printf("%s%c (%s) %s: ", levelColor(level), levelStr[level][0], getTimestamp().c_str(),
-               tag);
-        vprintf(fmt, args);
-        printf("%s\n", COLOR_RESET);
-    }
-    va_end(args);
 }
 
-std::string Logger::getTimestamp() {
-    auto now = std::chrono::system_clock::now();
-    auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) %
-                  std::chrono::milliseconds(MILLIS_PER_SECOND);
-
-    auto timeT = std::chrono::system_clock::to_time_t(now);
-
-    std::tm timeInfo;
-    localtime_r(&timeT, &timeInfo);
-
-    std::ostringstream oss;
-    oss << std::put_time(&timeInfo, "%Y-%m-%d %H:%M:%S") << '.' << std::setw(3) << std::setfill('0')
-        << millis.count();
-
-    return oss.str();
+void LogLine::append(const char* text) noexcept {
+    append(text != nullptr ? std::string_view{text} : std::string_view{"(null)"});
 }
 
-const char* Logger::levelColor(Level level) {
-    switch (level) {
-    case ERROR:
-        return COLOR_RED;
+void LogLine::append(char value) noexcept {
+    append(std::string_view{&value, 1});
+}
 
-    case WARN:
-        return COLOR_YELLOW;
+void LogLine::append(bool value) noexcept {
+    append(value ? std::string_view{"true"} : std::string_view{"false"});
+}
 
-    case INFO:
-        return COLOR_GREEN;
+void LogLine::append(double value) noexcept {
+    append(Fixed{value});
+}
 
-    case DEBUG:
-        return COLOR_BLUE;
+void LogLine::append(Hex value) noexcept {
+    appendPadded(value.value, Radix::Hexadecimal, value.width);
+}
 
-    case VERBOSE:
-        return COLOR_WHITE;
-
-    default:
-        return COLOR_RESET;
+void LogLine::append(Fixed value) noexcept {
+    std::array<char, numberCapacity> storage{};
+    const std::to_chars_result result{std::to_chars(storage.begin(), storage.end(), value.value,
+                                                    std::chars_format::fixed, value.precision)};
+    if (result.ec == std::errc{}) {
+        append(std::string_view{storage.data(),
+                                static_cast<std::size_t>(result.ptr - storage.begin())});
     }
+}
+
+void LogLine::append(const std::error_code& error) noexcept {
+    if (error.category() != std::generic_category() && error.category() != std::system_category()) {
+        append(std::string_view{error.category().name()});
+        append(':');
+        append(error.value());
+        return;
+    }
+    std::array<char, errnoTextCapacity> storage{};
+    // GNU strerror_r returns the text, which may be a static string instead of `storage`.
+    append(std::string_view{strerror_r(error.value(), storage.data(), storage.size())});
+}
+
+void LogLine::appendPadded(unsigned long long value, Radix radix, int width) noexcept {
+    std::array<char, numberCapacity> storage{};
+    const std::to_chars_result result{
+        std::to_chars(storage.begin(), storage.end(), value, static_cast<int>(radix))};
+    if (result.ec != std::errc{}) {
+        return;
+    }
+    const std::size_t length{static_cast<std::size_t>(result.ptr - storage.begin())};
+    for (std::size_t padding{length}; padding < static_cast<std::size_t>(width); ++padding) {
+        append('0');
+    }
+    append(std::string_view{storage.data(), length});
+}
+
+std::string_view LogLine::text() const noexcept {
+    return {buffer.data(), used};
+}
+
+void LogLine::appendSigned(long long value) noexcept {
+    std::array<char, numberCapacity> storage{};
+    const std::to_chars_result result{std::to_chars(storage.begin(), storage.end(), value)};
+    if (result.ec == std::errc{}) {
+        append(std::string_view{storage.data(),
+                                static_cast<std::size_t>(result.ptr - storage.begin())});
+    }
+}
+
+void LogLine::appendUnsigned(unsigned long long value) noexcept {
+    appendPadded(value, Radix::Decimal, 0);
+}
+
+void Logger::beginLine(LogLine& line, LogLevel lineLevel) const noexcept {
+    line.append(levelColor(lineLevel));
+    line.append(levelLetter(lineLevel));
+    line.append(" (");
+    appendTimestamp(line);
+    line.append(") ");
+    line.append(tag);
+    line.append(": ");
+}
+
+void Logger::endLine(LogLine& line, LogLevel lineLevel) noexcept {
+    line.append(colorReset);
+    line.append('\n');
+    writeAll(lineLevel <= LogLevel::Warn ? STDERR_FILENO : STDOUT_FILENO, line.text());
 }
