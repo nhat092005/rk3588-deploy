@@ -1,11 +1,19 @@
 // parseOptions: defaults, every flag, the ranges, and the failures (unknown flag, missing value,
-// missing --model, bad values). Needs only the command line, but links the board libraries whose
-// constants are the defaults. Exit code 0 when every check passes.
+// missing --model, bad values), and the config file (keys, order, paths, refusals). Needs only the
+// command line, but links the board libraries whose constants are the defaults. Exit code 0 when
+// every check passes.
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <optional>
+#include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 #include "app_options.h"
@@ -32,6 +40,8 @@ constexpr int customRecordDays{3};
 constexpr double customPre{2.5};
 constexpr double customPost{7.0};
 constexpr double realTolerance{1e-9};
+constexpr int otherWidth{1000};
+constexpr std::size_t oversizedConfigBytes{71680U};
 
 class Check {
 public:
@@ -62,7 +72,17 @@ ParseResult parse(const std::vector<const char*>& rest) {
     const Logger quiet{"OPTIONS", LogLevel::None};
     std::vector<const char*> args{"program"};
     args.insert(args.end(), rest.begin(), rest.end());
-    return parseOptions(args, quiet);
+    return parseOptions(args, "", quiet);
+}
+
+namespace fs = std::filesystem;
+
+// The same, with the application folder `baseDir` (it decides where the default config file is).
+ParseResult parseIn(const std::string& baseDir, const std::vector<const char*>& rest) {
+    const Logger quiet{"OPTIONS", LogLevel::None};
+    std::vector<const char*> args{"program"};
+    args.insert(args.end(), rest.begin(), rest.end());
+    return parseOptions(args, baseDir, quiet);
 }
 
 void checkDefaults(Check& check) {
@@ -108,7 +128,7 @@ void checkEveryFlag(Check& check) {
                                     "720",
                                     "--rotation",
                                     "180",
-                                    "--output-dir",
+                                    "--violation-output-dir",
                                     "/tmp/out",
                                     "--video-kbps",
                                     "8000",
@@ -129,7 +149,8 @@ void checkEveryFlag(Check& check) {
                                     "--keep-days",
                                     "7",
                                     "--record",
-                                    "--record-dir",
+                                    "true",
+                                    "--record-output-dir",
                                     "/mnt/usb/records",
                                     "--record-segment-seconds",
                                     "30",
@@ -147,7 +168,7 @@ void checkEveryFlag(Check& check) {
     check.expect(options.width == customWidth && options.height == customHeight,
                  "--width and --height");
     check.expect(options.rotation == Rotation::Rotate180, "--rotation");
-    check.expect(options.outputDir == "/tmp/out", "--output-dir");
+    check.expect(options.outputDir == "/tmp/out", "--violation-output-dir");
     check.expect(options.videoKbps == customKbps, "--video-kbps");
     check.expect(options.jpegQuality == customQuality, "--jpeg-quality");
     check.expect(near(options.holdSeconds, customHold), "--hold-seconds");
@@ -189,7 +210,7 @@ std::vector<Case> cases() {
         {{"--model", "m", "--width"}, invalid, "the last flag without a value"},
         {{"--model", ""}, invalid, "an empty model path"},
         {{"--model", "m", "--node", ""}, invalid, "an empty node"},
-        {{"--model", "m", "--output-dir", ""}, invalid, "an empty output folder"},
+        {{"--model", "m", "--violation-output-dir", ""}, invalid, "an empty output folder"},
         {{"--model", "m", "--width", "0"}, invalid, "width 0"},
         {{"--model", "m", "--width", "1281"}, invalid, "odd width"},
         {{"--model", "m", "--width", "16386"}, invalid, "width above the limit"},
@@ -236,11 +257,17 @@ std::vector<Case> cases() {
         {{"--model", "m", "--keep-days", "3651"}, invalid, "keep above the limit"},
         {{"--model", "m", "--keep-days", "3650"}, run, "keep at the limit"},
         {{"--model", "m", "--keep-days", "1.5"}, invalid, "a fraction of a day"},
-        {{"--model", "m", "--record"}, run, "--record alone, last"},
-        {{"--record", "--model", "m"}, run, "--record first"},
-        {{"--model", "m", "--record", "--frames", "5"}, run, "--record between flags"},
-        {{"--model", "m", "--record", "1"}, invalid, "--record takes no value"},
-        {{"--model", "m", "--record-dir", ""}, invalid, "an empty record folder"},
+        {{"--model", "m", "--record", "true"}, run, "--record true"},
+        {{"--model", "m", "--record", "false"}, run, "--record false"},
+        {{"--model", "m", "--record"}, invalid, "--record without a value"},
+        {{"--record", "--model", "m"}, invalid, "--record followed by a flag"},
+        {{"--model", "m", "--record", "1"}, invalid, "--record 1"},
+        {{"--model", "m", "--record", "yes"}, invalid, "--record yes"},
+        {{"--model", "m", "--record", "TRUE"}, invalid, "--record in capitals"},
+        {{"--model", "m", "--record", ""}, invalid, "--record with an empty value"},
+        {{"--model", "m", "--output-dir", "/x"}, invalid, "the old --output-dir"},
+        {{"--model", "m", "--record-dir", "/x"}, invalid, "the old --record-dir"},
+        {{"--model", "m", "--record-output-dir", ""}, invalid, "an empty record folder"},
         {{"--model", "m", "--record-segment-seconds", "0"}, invalid, "segment 0"},
         {{"--model", "m", "--record-segment-seconds", "3601"}, invalid, "segment above the limit"},
         {{"--model", "m", "--record-segment-seconds", "3600"}, run, "segment at the limit"},
@@ -266,6 +293,272 @@ void checkCases(Check& check) {
     check.expect(twice.status == ParseStatus::Run && twice.options.width == repeatedWidth,
                  "a flag given twice keeps the last value");
 }
+std::optional<fs::path> makeRoot() {
+    std::error_code error;
+    std::string pattern{(fs::temp_directory_path(error) / "app_options_XXXXXX").string()};
+    if (error || mkdtemp(pattern.data()) == nullptr) {
+        return std::nullopt;
+    }
+    return fs::path{pattern};
+}
+
+// Writes `text` as <root>/resource/config/app_config.json and returns the path of the file.
+std::string writeDefaultConfig(const fs::path& root, const std::string& text) {
+    std::error_code error;
+    fs::create_directories(root / "resource" / "config", error);
+    const fs::path file{root / "resource" / "config" / "app_config.json"};
+    std::ofstream out{file, std::ios::binary};
+    out << text;
+    return file.string();
+}
+
+std::string writeFile(const fs::path& path, const std::string& text) {
+    std::ofstream out{path, std::ios::binary};
+    out << text;
+    return path.string();
+}
+
+// Every key of the config file, with the values of the every-flag test.
+constexpr const char* everyKeyConfig{R"({
+  "model": "/models/a.rknn",
+  "camera": {"node": "/dev/video0", "width": 1280, "height": 720, "rotation": 180},
+  "encode": {"video_kbps": 8000, "jpeg_quality": 75},
+  "rule": {"hold_seconds": 2.5, "gap_seconds": 0.25, "min_confidence": 0.4},
+  "violation": {
+    "output_dir": "/tmp/out",
+    "clip_pre_seconds": 2.5,
+    "clip_post_seconds": 7,
+    "max_storage_gb": 1.5,
+    "keep_days": 7
+  },
+  "record": {
+    "enabled": true,
+    "output_dir": "/tmp/rec",
+    "segment_seconds": 30,
+    "max_storage_gb": 2.5,
+    "keep_days": 3
+  },
+  "run": {"frames": 300, "stats_seconds": 5}
+})"};
+
+// Whether `text` is the text of one of the strings that the result keeps (not a copy that moved).
+bool keptByResult(const ParseResult& result, std::string_view text) {
+    return std::any_of(result.storage.begin(), result.storage.end(),
+                       [text](const std::string& kept) { return text.data() == kept.c_str(); });
+}
+
+void checkConfigEveryKey(Check& check, const fs::path& root) {
+    writeDefaultConfig(root, everyKeyConfig);
+    const ParseResult result{parseIn(root.string(), {})};
+    check.expect(result.status == ParseStatus::Run, "the default config file gives every option");
+    const AppOptions& options{result.options};
+    check.expect(options.modelPath == "/models/a.rknn" && options.cameraNode == "/dev/video0" &&
+                     options.width == customWidth && options.height == customHeight &&
+                     options.rotation == Rotation::Rotate180,
+                 "config: model and camera");
+    check.expect(options.videoKbps == customKbps && options.jpegQuality == customQuality &&
+                     near(options.holdSeconds, customHold) && near(options.gapSeconds, customGap) &&
+                     near(options.minConfidence, customConfidence),
+                 "config: encode and rule");
+    check.expect(options.outputDir == "/tmp/out" && near(options.clipPreSeconds, customPre) &&
+                     near(options.clipPostSeconds, customPost) &&
+                     near(options.maxStorageGb, customStorage) && options.keepDays == customDays,
+                 "config: violation");
+    check.expect(options.record && options.recordDir == "/tmp/rec" &&
+                     near(options.recordSegmentSeconds, customSegment) &&
+                     near(options.recordMaxStorageGb, customRecordStorage) &&
+                     options.recordKeepDays == customRecordDays,
+                 "config: record");
+    check.expect(options.frames == customFrames && near(options.statsSeconds, customStats),
+                 "config: run");
+    check.expect(
+        keptByResult(result, options.modelPath) && keptByResult(result, options.cameraNode) &&
+            keptByResult(result, options.outputDir) && keptByResult(result, options.recordDir),
+        "the text options point at the strings the result keeps");
+
+    // The result moves without losing its strings (short strings live inside their element).
+    ParseResult moved{parseIn(root.string(), {})};
+    const ParseResult later{std::move(moved)};
+    check.expect(later.options.modelPath == "/models/a.rknn" &&
+                     later.options.recordDir == "/tmp/rec",
+                 "the strings survive a move of the result");
+}
+
+void checkConfigOrder(Check& check, const fs::path& root) {
+    writeDefaultConfig(
+        root,
+        R"({"model": "m", "camera": {"width": 1280, "node": "/a"}, "record": {"enabled": true}})");
+    const ParseResult fromFile{parseIn(root.string(), {})};
+    check.expect(fromFile.status == ParseStatus::Run && fromFile.options.width == customWidth &&
+                     fromFile.options.record && fromFile.options.cameraNode == "/a",
+                 "the file gives the values it names");
+    check.expect(near(fromFile.options.holdSeconds, defaultHoldSeconds) &&
+                     fromFile.options.height == defaultCameraHeight,
+                 "the rest stay at the defaults");
+
+    const ParseResult overridden{
+        parseIn(root.string(), {"--width", "640", "--model", "other", "--node", "/b"})};
+    check.expect(
+        overridden.status == ParseStatus::Run && overridden.options.width == repeatedWidth &&
+            overridden.options.modelPath == "other" && overridden.options.cameraNode == "/b",
+        "the command line wins over the file");
+    check.expect(overridden.options.record, "a key the command line does not give stays");
+    check.expect(!parseIn(root.string(), {"--record", "false"}).options.record,
+                 "--record false turns off what the file turned on");
+
+    const ParseResult twice{parseIn(root.string(), {"--width", "800", "--width", "640"})};
+    check.expect(twice.options.width == repeatedWidth, "the last of two command line values wins");
+
+    writeDefaultConfig(root, R"({"model": "m", "camera": {"width": 1280, "width": 640}})");
+    const ParseResult repeated{parseIn(root.string(), {})};
+    check.expect(repeated.status == ParseStatus::Run && repeated.options.width == repeatedWidth,
+                 "the last of two keys wins");
+    writeDefaultConfig(root,
+                       R"({"model": "m", "camera": {"width": 1280}, "camera": {"height": 720}})");
+    const ParseResult split{parseIn(root.string(), {})};
+    check.expect(split.status == ParseStatus::Run && split.options.width == customWidth &&
+                     split.options.height == customHeight,
+                 "a group given in two parts");
+
+    writeDefaultConfig(root, R"({"model": "m", "record": {"enabled": false}})");
+    check.expect(!parseIn(root.string(), {}).options.record, "record false stays off");
+    check.expect(parseIn(root.string(), {"--record", "true"}).options.record,
+                 "--record true turns on what the file left off");
+    writeDefaultConfig(root, R"({"model": "m", "camera": {}, "record": {}})");
+    check.expect(parseIn(root.string(), {}).status == ParseStatus::Run, "empty groups");
+}
+
+void checkConfigModel(Check& check, const fs::path& root) {
+    const std::string base{root.string()};
+    writeDefaultConfig(root, R"({"model": "resource/rknn/best-rk3588.rknn"})");
+    const ParseResult relative{parseIn(base, {})};
+    check.expect(relative.status == ParseStatus::Run &&
+                     relative.options.modelPath == base + "/resource/rknn/best-rk3588.rknn",
+                 "a relative model is relative to the application folder");
+
+    writeDefaultConfig(root, R"({"model": "/abs/m.rknn"})");
+    check.expect(parseIn(base, {}).options.modelPath == "/abs/m.rknn", "an absolute model stays");
+
+    writeDefaultConfig(root, R"({"model": "rel.rknn"})");
+    check.expect(parseIn("", {"--config", (root / "resource/config/app_config.json").c_str()})
+                         .options.modelPath == "rel.rknn",
+                 "without an application folder a relative model stays as written");
+    check.expect(parseIn(base, {"--model", "cli.rknn"}).options.modelPath == "cli.rknn",
+                 "a model of the command line is not joined");
+
+    writeDefaultConfig(root, R"({"camera": {"width": 1280}})");
+    check.expect(parseIn(base, {}).status == ParseStatus::Invalid, "no model anywhere");
+    check.expect(parseIn(base, {"--model", "m"}).status == ParseStatus::Run,
+                 "the model of the command line completes the file");
+}
+
+void checkConfigFiles(Check& check, const fs::path& root) {
+    const std::string base{root.string()};
+    std::error_code error;
+    fs::remove_all(root / "resource", error);
+    check.expect(parseIn(base, {"--model", "m"}).status == ParseStatus::Run,
+                 "a missing default file is not an error");
+    check.expect(parseIn(base, {}).status == ParseStatus::Invalid,
+                 "a missing default file and no model");
+
+    const std::string other{
+        writeFile(root / "other.json", R"({"model": "o", "camera": {"width": 1000}})")};
+    const ParseResult explicitFile{parseIn(base, {"--config", other.c_str()})};
+    check.expect(explicitFile.status == ParseStatus::Run &&
+                     explicitFile.options.width == otherWidth &&
+                     explicitFile.options.modelPath == base + "/o",
+                 "--config reads another file");
+    writeDefaultConfig(root, R"({"model": "d", "camera": {"width": 1280}})");
+    const ParseResult instead{parseIn(base, {"--config", other.c_str()})};
+    check.expect(instead.options.width == otherWidth, "--config replaces the default file");
+
+    check.expect(
+        parseIn(base, {"--config", (root / "absent.json").c_str(), "--model", "m"}).status ==
+            ParseStatus::Invalid,
+        "--config with a missing file");
+    check.expect(parseIn(base, {"--config"}).status == ParseStatus::Invalid,
+                 "--config without a value");
+    check.expect(parseIn(base, {"--config", ""}).status == ParseStatus::Invalid,
+                 "--config with an empty path");
+    check.expect(parseIn(base, {"--config", root.c_str(), "--model", "m"}).status ==
+                     ParseStatus::Invalid,
+                 "--config with a folder");
+}
+
+void checkConfigRefusals(Check& check, const fs::path& root) {
+    const std::string base{root.string()};
+    struct Bad {
+        const char* text;
+        const char* what;
+    };
+    const std::vector<Bad> bad{
+        {R"({"model": "m", "bogus": 1})", "an unknown key"},
+        {R"({"model": "m", "camera": {"bogus": 1}})", "an unknown key in a group"},
+        {R"({"model": "m", "bogus": {"width": 1280}})", "an unknown group"},
+        {R"({"model": "m", "bogus": {}})", "an unknown empty group"},
+        {R"({"model": "m", "mod": {}})", "a group named like the start of a key"},
+        {R"({"model": "m", "cam": {}})", "a group named like the start of a group"},
+        {R"({"model": "m", "model": {}})", "the model as an empty group"},
+        {R"({"model": "m", "width": 1280})", "a key outside its group"},
+        {R"({"model": "m", "encode": {"width": 1280}})", "a key in the wrong group"},
+        {R"({"model": "m", "camera": {"model": "x"}})", "the model inside a group"},
+        {R"({"model": {"path": "x"}})", "the model as a group"},
+        {R"({"model": "m", "camera": 5})", "a group that is a number"},
+        {R"({"model": "m", "camera": "x"})", "a group that is a string"},
+        {R"({"model": "m", "camera": {"video": {"width": 1}}})", "a group inside a group"},
+        {R"({"model": "m", "config": "x.json"})", "config is not a key"},
+        {R"({"model": "m", "help": true})", "help is not a key"},
+        {R"({"model": "m", "camera": {"--width": 1280}})", "a key with its dashes"},
+        {R"({"model": "m", "encode": {"video-kbps": 8000}})", "a key with - instead of _"},
+        {R"({"model": "m", "violation": {"dir": "/x"}})", "the old dir key"},
+        {R"({"model": "m", "record": {"dir": "/x"}})", "the old record dir key"},
+        {R"({"model": "m", "camera": {"width": 1281}})", "an odd width"},
+        {R"({"model": "m", "camera": {"width": true}})", "a boolean for a number"},
+        {R"({"model": "m", "camera": {"width": "1280"}})", "text for a number"},
+        {R"({"model": "m", "camera": {"width": 1280.0}})", "a real for a whole number"},
+        {R"({"model": "m", "camera": {"rotation": 45}})", "a rotation that is not allowed"},
+        {R"({"model": "m", "camera": {"rotation": "180"}})", "text for the rotation"},
+        {R"({"model": "m", "camera": {"node": 11}})", "a number for the node"},
+        {R"({"model": "m", "record": {"enabled": 1}})", "a number for enabled"},
+        {R"({"model": "m", "record": {"enabled": "true"}})", "text for enabled"},
+        {R"({"model": true})", "a boolean for the model"},
+        {R"({"model": 5})", "a number for the model"},
+        {R"({"model": ""})", "an empty model"},
+        {R"({"model": "m", "rule": {"min_confidence": 1.5}})", "a confidence above 1"},
+        {R"({"model": "m", "violation": {"keep_days": 0}})", "keep_days 0"},
+        {R"({"model": "m", "violation": {"output_dir": ""}})", "an empty violation folder"},
+        {R"({"model": "m", "record": {"output_dir": ""}})", "an empty record folder"},
+        {R"({"model": "m", )", "a cut text"},
+        {"", "an empty file"},
+        {"[]", "an array"},
+        {R"({"model": "m"} {})", "two objects"},
+    };
+    for (const Bad& item : bad) {
+        writeDefaultConfig(root, item.text);
+        check.expect(parseIn(base, {}).status == ParseStatus::Invalid, item.what);
+    }
+    writeDefaultConfig(root, R"({"model": "m", "bogus": 1})");
+    check.expect(parseIn(base, {"--help"}).status == ParseStatus::Help,
+                 "--help works with a broken config file");
+    writeDefaultConfig(root, std::string(oversizedConfigBytes, ' '));
+    check.expect(parseIn(base, {"--model", "m"}).status == ParseStatus::Invalid,
+                 "a config file over the size limit");
+}
+
+void checkConfig(Check& check) {
+    const std::optional<fs::path> root{makeRoot()};
+    check.expect(root.has_value(), "a temporary folder");
+    if (!root) {
+        return;
+    }
+    checkConfigEveryKey(check, *root);
+    checkConfigOrder(check, *root);
+    checkConfigModel(check, *root);
+    checkConfigFiles(check, *root);
+    checkConfigRefusals(check, *root);
+    std::error_code error;
+    fs::remove_all(*root, error);
+}
 } // namespace
 
 int main() {
@@ -274,6 +567,7 @@ int main() {
     checkDefaults(check);
     checkEveryFlag(check);
     checkCases(check);
+    checkConfig(check);
     if (check.ok()) {
         log.info("PASS");
         return EXIT_SUCCESS;

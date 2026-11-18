@@ -23,8 +23,8 @@ struct RecordCounts {
 };
 
 /**
- * @brief The work of the recording thread (only created for --record): takes the encoded packets
- *        that the writer thread pushes into the queue and writes them to segment files
+ * @brief The work of the recording thread (only created for --record true): takes the encoded
+ * packets that the writer thread pushes into the queue and writes them to segment files
  *        (SegmentWriter), keeping the folder within its limits (RecordingRetention) at the start of
  *        every segment, after every completed one, and once an hour. The disk can stall for
  *        seconds (measured on the board: 2.2 s for one write), which is why this is a thread of its

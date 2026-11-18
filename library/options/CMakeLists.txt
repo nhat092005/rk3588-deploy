@@ -6,6 +6,7 @@ if(CMAKE_CROSSCOMPILING)
     target_link_libraries(
         options_lib
         PUBLIC logger_lib
+               config_lib
                letterbox_lib
                jpeg_lib
                video_lib

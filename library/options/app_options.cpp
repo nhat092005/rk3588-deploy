@@ -1,14 +1,21 @@
 #include "app_options.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
+#include <string>
+
+#include "file_text.h"
+#include "config_json.h"
 
 namespace {
 constexpr int decimalBase{10};
 constexpr std::size_t programIndex{0};
 constexpr std::string_view helpFlag{"--help"};
+constexpr std::string_view configFlag{"--config"};
+constexpr std::string_view modelKey{"model"};
 
 // A whole number in [low, high], or false for junk, trailing text or a value out of range.
 bool parseWhole(const char* text, std::int64_t low, std::int64_t high, std::int64_t& value) {
@@ -34,6 +41,11 @@ bool parseReal(const char* text, double low, double high, double& value) {
 
 bool setModel(AppOptions& options, const char* text) {
     options.modelPath = text;
+    return *text != '\0';
+}
+
+bool setConfig(AppOptions& options, const char* text) {
+    options.configPath = text;
     return *text != '\0';
 }
 
@@ -68,7 +80,7 @@ bool setRotation(AppOptions& options, const char* text) {
     return rotation.has_value();
 }
 
-bool setOutputDir(AppOptions& options, const char* text) {
+bool setViolationOutputDir(AppOptions& options, const char* text) {
     options.outputDir = text;
     return *text != '\0';
 }
@@ -157,13 +169,17 @@ bool setKeepDays(AppOptions& options, const char* text) {
     return true;
 }
 
-// --record takes no value: its presence turns the recording on.
-bool setRecord(AppOptions& options, const char* /*unused*/) {
-    options.record = true;
+// --record takes true or false.
+bool setRecord(AppOptions& options, const char* text) {
+    const std::string_view value{text};
+    if (value != "true" && value != "false") {
+        return false;
+    }
+    options.record = value == "true";
     return true;
 }
 
-bool setRecordDir(AppOptions& options, const char* text) {
+bool setRecordOutputDir(AppOptions& options, const char* text) {
     options.recordDir = text;
     return *text != '\0';
 }
@@ -221,39 +237,62 @@ struct Flag {
     std::string_view name;
     Setter set;
     const char* help;
-    // false for a flag that stands alone (--record): the next argument is not its value.
-    bool takesValue{true};
+    // The kind of value the config file must give, and its place there: "group.key", or "key" at
+    // the top. Empty path: not in the config file.
+    JsonKind kind;
+    std::string_view path;
 };
 
-constexpr std::array<Flag, 22> flags{{
-    {"--model", setModel, "path of the .rknn model (required)"},
-    {"--node", setNode, "camera capture node"},
-    {"--width", setWidth, "camera frame width in pixels, even"},
-    {"--height", setHeight, "camera frame height in pixels, even"},
-    {"--rotation", setRotation, "camera mounting, 0, 90, 180 or 270 degrees clockwise"},
-    {"--output-dir", setOutputDir, "folder of the violation files"},
-    {"--video-kbps", setVideoKbps, "video bitrate in kilobits per second"},
-    {"--jpeg-quality", setJpegQuality, "JPEG quality factor, 1 to 99"},
-    {"--hold-seconds", setHoldSeconds, "seconds before a violation is reported"},
-    {"--gap-seconds", setGapSeconds, "seconds of break that do not end a violation"},
-    {"--min-confidence", setMinConfidence, "lowest confidence of a NoHelmet or NoVest box, 0 to 1"},
-    {"--clip-pre-seconds", setClipPreSeconds, "seconds of video kept before a violation, 0 to 60"},
-    {"--clip-post-seconds", setClipPostSeconds, "seconds of video after a violation, 0 to 60"},
-    {"--max-storage-gb", setMaxStorageGb, "most gigabytes the violation folder may use"},
-    {"--keep-days", setKeepDays, "days a violation is kept, 1 to 3650"},
-    {"--record", setRecord, "record the video continuously (no value)", false},
-    {"--record-dir", setRecordDir, "folder of the recordings"},
-    {"--record-segment-seconds", setRecordSegmentSeconds, "seconds of video in a recording file"},
-    {"--record-max-storage-gb", setRecordMaxStorageGb, "most gigabytes the recordings may use"},
-    {"--record-keep-days", setRecordKeepDays, "days a recording is kept, 1 to 3650"},
-    {"--frames", setFrames, "frames to process, 0 for no limit"},
-    {"--stats-seconds", setStatsSeconds, "seconds between two lines of statistics"},
+constexpr std::array<Flag, 23> flags{{
+    {"--model", setModel, "path of the .rknn model (required unless the config file gives it)",
+     JsonKind::String, "model"},
+    {"--config", setConfig, "config file, default <app folder>/resource/config/app_config.json",
+     JsonKind::String, ""},
+    {"--node", setNode, "camera capture node", JsonKind::String, "camera.node"},
+    {"--width", setWidth, "camera frame width in pixels, even", JsonKind::Number, "camera.width"},
+    {"--height", setHeight, "camera frame height in pixels, even", JsonKind::Number,
+     "camera.height"},
+    {"--rotation", setRotation, "camera mounting, 0, 90, 180 or 270 degrees clockwise",
+     JsonKind::Number, "camera.rotation"},
+    {"--video-kbps", setVideoKbps, "video bitrate in kilobits per second", JsonKind::Number,
+     "encode.video_kbps"},
+    {"--jpeg-quality", setJpegQuality, "JPEG quality factor, 1 to 99", JsonKind::Number,
+     "encode.jpeg_quality"},
+    {"--hold-seconds", setHoldSeconds, "seconds before a violation is reported", JsonKind::Number,
+     "rule.hold_seconds"},
+    {"--gap-seconds", setGapSeconds, "seconds of break that do not end a violation",
+     JsonKind::Number, "rule.gap_seconds"},
+    {"--min-confidence", setMinConfidence, "lowest confidence of a NoHelmet or NoVest box, 0 to 1",
+     JsonKind::Number, "rule.min_confidence"},
+    {"--violation-output-dir", setViolationOutputDir, "folder of the violation files",
+     JsonKind::String, "violation.output_dir"},
+    {"--clip-pre-seconds", setClipPreSeconds, "seconds of video kept before a violation, 0 to 60",
+     JsonKind::Number, "violation.clip_pre_seconds"},
+    {"--clip-post-seconds", setClipPostSeconds, "seconds of video after a violation, 0 to 60",
+     JsonKind::Number, "violation.clip_post_seconds"},
+    {"--max-storage-gb", setMaxStorageGb, "most gigabytes the violation folder may use",
+     JsonKind::Number, "violation.max_storage_gb"},
+    {"--keep-days", setKeepDays, "days a violation is kept, 1 to 3650", JsonKind::Number,
+     "violation.keep_days"},
+    {"--record", setRecord, "record the video continuously, true or false", JsonKind::Boolean,
+     "record.enabled"},
+    {"--record-output-dir", setRecordOutputDir, "folder of the recordings", JsonKind::String,
+     "record.output_dir"},
+    {"--record-segment-seconds", setRecordSegmentSeconds, "seconds of video in a recording file",
+     JsonKind::Number, "record.segment_seconds"},
+    {"--record-max-storage-gb", setRecordMaxStorageGb, "most gigabytes the recordings may use",
+     JsonKind::Number, "record.max_storage_gb"},
+    {"--record-keep-days", setRecordKeepDays, "days a recording is kept, 1 to 3650",
+     JsonKind::Number, "record.keep_days"},
+    {"--frames", setFrames, "frames to process, 0 for no limit", JsonKind::Number, "run.frames"},
+    {"--stats-seconds", setStatsSeconds, "seconds between two lines of statistics",
+     JsonKind::Number, "run.stats_seconds"},
 }};
 
 void logUsage(const char* program, const Logger& log) {
-    log.info("usage: ", program, " --model <path> [flags]");
+    log.info("usage: ", program, " [--model <path>] [flags]");
     for (const Flag& flag : flags) {
-        log.info("  ", flag.name, flag.takesValue ? " <value>  " : "  ", flag.help);
+        log.info("  ", flag.name, " <value>  ", flag.help);
     }
     log.info("  ", helpFlag, "  this text");
 }
@@ -266,27 +305,165 @@ const Flag* findFlag(std::string_view name) {
     }
     return nullptr;
 }
-} // namespace
 
-ParseResult parseOptions(const std::vector<const char*>& args, const Logger& log) {
-    ParseResult result;
-    const char* program{args.empty() ? "program" : args.at(programIndex)};
+// The flag of a place in the config file. --config has no place there: a file does not name
+// another file.
+const Flag* findPath(std::string_view path) {
+    for (const Flag& flag : flags) {
+        if (!flag.path.empty() && flag.path == path) {
+            return &flag;
+        }
+    }
+    return nullptr;
+}
+
+// Whether some flag lives in the group of that name.
+bool isGroup(std::string_view name) {
+    return std::any_of(flags.begin(), flags.end(), [name](const Flag& flag) {
+        const std::size_t dot{flag.path.find('.')};
+        return dot != std::string_view::npos && flag.path.substr(0, dot) == name;
+    });
+}
+
+// The command line looked at before anything is applied: --help anywhere, and the --config file.
+// The program name is skipped and the value of a flag is not taken for a flag.
+struct Scan {
+    bool help{false};
+    const char* config{nullptr};
+};
+
+Scan scanArguments(const std::vector<const char*>& args) {
+    Scan scan;
     for (std::size_t at{1}; at < args.size(); ++at) {
         const std::string_view name{args.at(at)};
         if (name == helpFlag) {
-            logUsage(program, log);
-            result.status = ParseStatus::Help;
-            return result;
+            scan.help = true;
+            continue;
         }
+        if (findFlag(name) == nullptr) {
+            continue;
+        }
+        if (name == configFlag && at + 1 < args.size()) {
+            scan.config = args.at(at + 1);
+        }
+        ++at;
+    }
+    return scan;
+}
+
+const char* kindName(JsonKind kind) {
+    switch (kind) {
+    case JsonKind::String:
+        return "a string";
+    case JsonKind::Number:
+        return "a number";
+    case JsonKind::Boolean:
+        return "true or false";
+    case JsonKind::Object:
+        break;
+    }
+    return "a group";
+}
+
+bool isAbsolute(std::string_view path) {
+    return !path.empty() && path.front() == '/';
+}
+
+// Puts the entries of one config file into the options. The strings are kept in the result.
+bool applyConfig(const FileText& file, const std::string& path, std::string_view baseDir,
+                 ParseResult& result, const Logger& log) {
+    JsonParse json{parseConfigJson(file.text)};
+    if (!json.ok) {
+        log.error(path, ": ", json.reason, " (byte ", json.offset, ")");
+        return false;
+    }
+    // Two strings at most per entry (the value, then the model path joined to baseDir). The
+    // vector must not grow later: the options point into its elements.
+    result.storage.reserve(json.entries.size() * 2);
+    for (JsonEntry& entry : json.entries) {
+        const std::string where{entry.group.empty() ? entry.key : entry.group + "." + entry.key};
+        if (entry.kind == JsonKind::Object) {
+            if (!isGroup(entry.key)) {
+                log.error(path, ": unknown group ", where);
+                return false;
+            }
+            continue;
+        }
+        const Flag* flag{findPath(where)};
+        if (flag == nullptr) {
+            log.error(path, ": unknown key ", where);
+            return false;
+        }
+        if (entry.kind != flag->kind) {
+            log.error(path, ": ", where, " must be ", kindName(flag->kind));
+            return false;
+        }
+        result.storage.push_back(std::move(entry.value));
+        // An empty model must stay empty so that setModel refuses it: joined, it would be the
+        // folder.
+        if (flag->path == modelKey && !baseDir.empty() && !result.storage.back().empty() &&
+            !isAbsolute(result.storage.back())) {
+            std::string joined{baseDir};
+            joined += '/';
+            joined += result.storage.back();
+            result.storage.push_back(std::move(joined));
+        }
+        if (!flag->set(result.options, result.storage.back().c_str())) {
+            log.error(path, ": bad value for ", where, ": ", result.storage.back());
+            return false;
+        }
+    }
+    return true;
+}
+
+// Reads the config file, the given one or the default one. false only on a failure to report.
+bool loadConfig(const Scan& scan, std::string_view baseDir, ParseResult& result,
+                const Logger& log) {
+    std::string path;
+    if (scan.config != nullptr) {
+        path = scan.config;
+    } else if (!baseDir.empty()) {
+        path = std::string{baseDir} + '/' + std::string{defaultConfigFile};
+    } else {
+        return true;
+    }
+    const FileText file{readTextFile(path, log)};
+    if (file.status == ReadStatus::Failed) {
+        return false;
+    }
+    if (file.status == ReadStatus::Missing) {
+        if (scan.config != nullptr) {
+            log.error("config file not found: ", path);
+            return false;
+        }
+        log.info("no config file ", path, ", using the defaults and the command line");
+        return true;
+    }
+    log.info("config file ", path);
+    return applyConfig(file, path, baseDir, result, log);
+}
+} // namespace
+
+ParseResult parseOptions(const std::vector<const char*>& args, std::string_view baseDir,
+                         const Logger& log) {
+    ParseResult result;
+    const char* program{args.empty() ? "program" : args.at(programIndex)};
+    const Scan scan{scanArguments(args)};
+    if (scan.help) {
+        logUsage(program, log);
+        result.status = ParseStatus::Help;
+        return result;
+    }
+    if (!loadConfig(scan, baseDir, result, log)) {
+        return result;
+    }
+    for (std::size_t at{1}; at < args.size(); ++at) {
+        const std::string_view name{args.at(at)};
         const Flag* flag{findFlag(name)};
         if (flag == nullptr) {
             log.error("unknown flag ", name);
             logUsage(program, log);
             return result;
-        }
-        if (!flag->takesValue) {
-            (void)flag->set(result.options, "");
-            continue;
         }
         if (at + 1 >= args.size()) {
             log.error(name, " needs a value");
@@ -299,7 +476,7 @@ ParseResult parseOptions(const std::vector<const char*>& args, const Logger& log
         }
     }
     if (result.options.modelPath.empty()) {
-        log.error("--model is required");
+        log.error("a model is required: --model, or \"model\" in the config file");
         logUsage(program, log);
         return result;
     }
