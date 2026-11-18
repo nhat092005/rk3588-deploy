@@ -6,7 +6,7 @@ the header carries) in an 8x16 cell without anti-aliasing. The header
 holds 16 bytes per character, one per row, the leftmost pixel in the
 top bit. Prints the header to stdout and a preview of the sample text
 to stderr.
-Usage: make_label_font.py [font.ttf] > library/label/label_font.h
+Usage: make_label_font.py [font.ttf] > library/hardware/label/label_font.h
 """
 
 from __future__ import annotations
