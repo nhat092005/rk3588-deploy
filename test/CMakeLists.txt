@@ -1,18 +1,35 @@
 file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 
 # Tests of the RGA and NPU wrappers need the board libraries: cross-compile only.
-if(NOT CMAKE_CROSSCOMPILING)
-    list(
-        FILTER
-        TEST_SOURCES
-        EXCLUDE
-        REGEX
-        "test_(rga_letterbox|rga_snapshot|rga_overlay|rga_labels|jpeg_encoder|video_encoder|app_options|npu_infer)\\.cpp$"
-    )
-endif()
+set(BOARD_ONLY_TESTS
+    test_rga_letterbox
+    test_rga_snapshot
+    test_rga_overlay
+    test_rga_labels
+    test_jpeg_encoder
+    test_video_encoder
+    test_app_options
+    test_npu_infer
+)
 
 foreach(TEST_SRC ${TEST_SOURCES})
     get_filename_component(TEST_NAME ${TEST_SRC} NAME_WE)
+
+    # test_volume -> BUILD_TEST_VOLUME
+    string(REGEX REPLACE "^test_" "" TEST_SHORT ${TEST_NAME})
+    string(TOUPPER ${TEST_SHORT} TEST_SWITCH)
+    set(TEST_SWITCH BUILD_TEST_${TEST_SWITCH})
+    if(NOT DEFINED ${TEST_SWITCH})
+        message(FATAL_ERROR "${TEST_NAME}: add set(${TEST_SWITCH} ON) to cmake/build_config.cmake")
+    endif()
+    if(NOT ${TEST_SWITCH})
+        message(STATUS "skip ${TEST_NAME}: ${TEST_SWITCH} is OFF")
+        continue()
+    endif()
+    if(NOT CMAKE_CROSSCOMPILING AND TEST_NAME IN_LIST BOARD_ONLY_TESTS)
+        message(STATUS "skip ${TEST_NAME}: it needs the board")
+        continue()
+    endif()
 
     add_executable(${TEST_NAME} ${TEST_SRC})
 
