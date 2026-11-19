@@ -11,8 +11,8 @@
 
 #include "logger.h"
 
-/** @brief Defaults of the limits of the recordings. The free-space floor is higher than the one of
- *         the violations (2 GB), so that the video is always trimmed before a violation is. */
+/** @brief Defaults of the limits of the recordings. The default free-space floor is higher than
+ * that of the violations (2 GB), so that the video is trimmed before a violation is. */
 constexpr double defaultArchiveMaxStorageGb{5.0};
 constexpr int defaultArchiveKeepDays{7};
 constexpr std::uint64_t defaultArchiveMinFreeBytes{3'000'000'000};

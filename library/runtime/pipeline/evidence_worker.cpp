@@ -161,9 +161,9 @@ std::optional<EvidenceWorker> EvidenceWorker::create(const AppOptions& options, 
     std::optional<JpegEncoder> first{JpegEncoder::create(config, log)};
     std::optional<JpegEncoder> second{JpegEncoder::create(config, log)};
     std::optional<ViolationRetention> retention{ViolationRetention::create(
-        RetentionConfig{options.outputDir,
-                        static_cast<std::uint64_t>(options.maxStorageGb * bytesPerGigabyte),
-                        options.keepDays, defaultMinFreeBytes},
+        RetentionConfig{
+            options.outputDir, static_cast<std::uint64_t>(options.maxStorageGb * bytesPerGigabyte),
+            options.keepDays, static_cast<std::uint64_t>(options.minFreeGb * bytesPerGigabyte)},
         log)};
     if (!store || !first || !second || !retention) {
         return std::nullopt;

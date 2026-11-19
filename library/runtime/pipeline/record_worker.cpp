@@ -82,7 +82,8 @@ std::optional<RecordWorker> RecordWorker::create(const AppOptions& options, cons
         RecordingRetentionConfig{
             options.archiveDir,
             static_cast<std::uint64_t>(options.archiveMaxStorageGb * bytesPerGigabyte),
-            options.archiveKeepDays, defaultArchiveMinFreeBytes},
+            options.archiveKeepDays,
+            static_cast<std::uint64_t>(options.archiveMinFreeGb * bytesPerGigabyte)},
         log)};
     if (!queue || !writer || !retention) {
         return std::nullopt;

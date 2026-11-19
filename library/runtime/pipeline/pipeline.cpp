@@ -698,25 +698,25 @@ void warnIfOverCommitted(const AppOptions& options, const EvidenceWorker& eviden
                          const RecordWorker* record, const Logger& log) {
     const std::string violationDir{options.outputDir};
     const FolderBudget violations{
-        static_cast<std::uint64_t>(options.maxStorageGb * bytesPerGigabyte), defaultMinFreeBytes,
-        evidence.storedBytes()};
+        static_cast<std::uint64_t>(options.maxStorageGb * bytesPerGigabyte),
+        static_cast<std::uint64_t>(options.minFreeGb * bytesPerGigabyte), evidence.storedBytes()};
     std::vector<FolderBudget> sharing{violations};
     if (record != nullptr) {
         const std::string archiveDir{options.archiveDir};
         const FolderBudget archived{
             static_cast<std::uint64_t>(options.archiveMaxStorageGb * bytesPerGigabyte),
-            defaultArchiveMinFreeBytes, record->storedBytes()};
+            static_cast<std::uint64_t>(options.archiveMinFreeGb * bytesPerGigabyte),
+            record->storedBytes()};
         if (sameVolume(violationDir, archiveDir)) {
             sharing.push_back(archived);
         } else {
             const std::optional<std::uint64_t> otherFree{volumeFreeBytes(archiveDir)};
             if (otherFree && overCommitted({archived}, *otherFree)) {
-                log.warn(
-                    "the archive limits do not fit the free space of ", archiveDir, ": ",
-                    Fixed{options.archiveMaxStorageGb, gbPrecision}, " GB plus a floor of ",
-                    Fixed{static_cast<double>(defaultArchiveMinFreeBytes) * bytesToGb, gbPrecision},
-                    " GB, with ", Fixed{static_cast<double>(*otherFree) * bytesToGb, gbPrecision},
-                    " GB free: the oldest archive files will go before the limit is reached");
+                log.warn("the archive limits do not fit the free space of ", archiveDir, ": ",
+                         Fixed{options.archiveMaxStorageGb, gbPrecision}, " GB plus a floor of ",
+                         Fixed{options.archiveMinFreeGb, gbPrecision}, " GB, with ",
+                         Fixed{static_cast<double>(*otherFree) * bytesToGb, gbPrecision},
+                         " GB free: the oldest archive files will go before the limit is reached");
             }
         }
     }
