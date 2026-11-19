@@ -93,4 +93,29 @@
 - The bitrate of a scaled stream follows the pixels: `encode.video_kbps` times the pixels of the scaled picture over those of the camera picture, but not below 500 kbps. It is not a key.
 - `downscale` shrinks the files of the video outputs because the bitrate shrinks with it.
 
+## Profile: everything at 1080
+
+For long archives and small evidence files. Put this in the file (or the same keys on the command line), the rest stays at the defaults.
+
+```json
+"violation": {
+  "image": {"downscale": {"enabled": true, "height": 1080}},
+  "clip": {"downscale": {"enabled": true, "height": 1080}}
+},
+"archive": {"enabled": true, "downscale": {"enabled": true, "height": 1080}},
+"session": {"enabled": true, "downscale": {"enabled": true, "height": 1080}}
+```
+
+Measured on the board (300 frames, archive and session on):
+
+| Setup | Low heap used | Writer per frame |
+|---|---|---|
+| image 1080, clip 1080, archive 1080, session 1080 | 43 MB | about 14 ms |
+| same, clip at 4K (`violation.clip.downscale.enabled` false) | 43 MB | about 22 ms |
+| same as the first, image 1440 | 52 MB | about 14 ms |
+
+- The four outputs share one 1080 stream, so no 4K stream is encoded while `stream.enabled` is false. The live stream is always full size and brings the 4K encoder back (not measured with a server).
+- The low heap gives about 75 MB. Images at 4K take about 50 MB of it, so a scaled video output needs the images scaled (`violation.image.downscale`) or off (`violation.image.enabled` false).
+- The bitrate of the 1080 stream is 5000 kbps with the default `encode.video_kbps`, a quarter of the 4K one. The archive limits (`archive.max_storage_gb`) then hold about four times the time; this follows from the bitrate and was not measured on a scene with people.
+
 The live view (`stream.*`) is in `deploy/README.md`.
