@@ -11,6 +11,7 @@
 #include "recording_retention.h"
 #include "rotation.h"
 #include "segment_writer.h"
+#include "session_writer.h"
 #include "stream_worker.h"
 #include "video_encoder.h"
 #include "violation_retention.h"
@@ -35,6 +36,8 @@ constexpr int maxKeepDays{3650};
 /** @brief Free space the volume keeps, in gigabytes, as the retention libraries define it. */
 constexpr double defaultMinFreeGb{static_cast<double>(defaultMinFreeBytes) / bytesPerGigabyte};
 constexpr double defaultArchiveMinFreeGb{static_cast<double>(defaultArchiveMinFreeBytes) /
+                                         bytesPerGigabyte};
+constexpr double defaultSessionMinFreeGb{static_cast<double>(defaultSessionMinFreeBytes) /
                                          bytesPerGigabyte};
 /** @brief Largest camera side accepted, in pixels. */
 constexpr int maxCameraSide{16'384};
@@ -87,6 +90,12 @@ struct AppOptions {
     /** The same for the volume of the archive. Keep it above the one of the violations, so that
      *  the video is trimmed before a violation is. */
     double archiveMinFreeGb{defaultArchiveMinFreeGb};
+    /** Video of the whole run in one file, off unless --session true is given: the file goes to
+     *  sessionDir, is never removed, and stops growing when the volume has less than
+     *  sessionMinFreeGb free. */
+    bool session{false};
+    std::string_view sessionDir{defaultSessionRoot};
+    double sessionMinFreeGb{defaultSessionMinFreeGb};
     /** Live stream of the video, off unless --stream true is given: ffmpeg publishes it to
      *  streamUrl (an RTSP server such as MediaMTX must listen there). */
     bool stream{false};
@@ -139,11 +148,12 @@ struct ParseResult {
  * --clip-post-seconds, --max-storage-gb, --keep-days, --violation-min-free-gb, --archive (true or
  * false),
  * --archive-output-dir, --archive-segment-seconds, --archive-max-storage-gb, --archive-keep-days,
- * --archive-min-free-gb,
+ * --archive-min-free-gb, --session (true or false), --session-output-dir,
+ * --session-min-free-gb,
  * --stream (true or false), --stream-url, --frames, --stats-seconds.
  *
  * The config file is one JSON object: `model` at the top and the other options in groups
- * (`camera`, `encode`, `rule`, `violation`, `archive`, `stream`, `run`), for example
+ * (`camera`, `encode`, `rule`, `violation`, `archive`, `session`, `stream`, `run`), for example
  * `{"model": "m.rknn", "camera": {"width": 3840}, "archive": {"enabled": true}}`. Every key is
  * optional. A key has the kind of value of its flag (`width` is a number, `node` a string,
  * `archive.enabled` true or false) and the same range. The place of each key is in the table of

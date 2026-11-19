@@ -21,6 +21,7 @@
 #include "output_branch.h"
 #include "postprocess.h"
 #include "record_worker.h"
+#include "session_worker.h"
 #include "stream_worker.h"
 #include "rga.h"
 #include "stage_stats.h"
@@ -61,6 +62,8 @@ constexpr int recordCpu{3};
 // The stream thread waits for the network, and the ffmpeg it starts inherits this core: a small
 // one, apart from the five threads above and the recording.
 constexpr int streamCpu{2};
+// The session thread mostly waits for the disk and the flush every second: the last small core.
+constexpr int sessionCpu{1};
 
 double millisecondsBetween(Clock::time_point start, Clock::time_point end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
@@ -102,6 +105,7 @@ struct Parts {
     ViolationRule rule;
     SourceMapping mapping;
     std::optional<RecordWorker> record;
+    std::optional<SessionWorker> session;
     std::optional<StreamWorker> stream;
     OutputBranch output;
     EvidenceWorker evidence;
@@ -117,8 +121,8 @@ struct PipelineState {
           inputs{std::move(parts.inputs)}, npu{std::move(parts.npu)},
           postprocessor{std::move(parts.postprocessor)}, tracker{std::move(parts.tracker)},
           rule{std::move(parts.rule)}, mapping{parts.mapping}, record{std::move(parts.record)},
-          stream{std::move(parts.stream)}, output{std::move(parts.output)},
-          evidence{std::move(parts.evidence)} {
+          session{std::move(parts.session)}, stream{std::move(parts.stream)},
+          output{std::move(parts.output)}, evidence{std::move(parts.evidence)} {
         persons.reserve(maxDetections);
     }
     PipelineState(const PipelineState&) = delete;
@@ -140,6 +144,7 @@ struct PipelineState {
     SourceMapping mapping;
     // Declared before the output branch, which keeps a pointer to their queues.
     std::optional<RecordWorker> record;
+    std::optional<SessionWorker> session;
     std::optional<StreamWorker> stream;
     OutputBranch output;
     EvidenceWorker evidence;
@@ -258,6 +263,15 @@ std::optional<StreamWorker> makeStream(const AppOptions& options, const Logger& 
 }
 
 std::optional<Parts> makeParts(const AppOptions& options, const Logger& log) {
+    // First, so that a folder that cannot be used stops the run before the model is loaded and the
+    // camera is opened.
+    std::optional<SessionWorker> session;
+    if (options.session) {
+        session = SessionWorker::create(options, log);
+        if (!session) {
+            return std::nullopt;
+        }
+    }
     const std::string model{options.modelPath};
     std::optional<NpuInfer> npu{NpuInfer::create(NpuConfig{model.c_str()}, log)};
     if (!npu) {
@@ -284,6 +298,7 @@ std::optional<Parts> makeParts(const AppOptions& options, const Logger& log) {
     }
     std::optional<StreamWorker> stream{makeStream(options, log)};
     const PacketSinks sinks{record ? &record->queue() : nullptr,
+                            session ? &session->queue() : nullptr,
                             stream ? &stream->queue() : nullptr};
     std::optional<OutputBranch> output{OutputBranch::create(options, format, sinks, log)};
     if (!output) {
@@ -307,6 +322,7 @@ std::optional<Parts> makeParts(const AppOptions& options, const Logger& log) {
                  std::move(logic->rule),
                  mapping,
                  std::move(record),
+                 std::move(session),
                  std::move(stream),
                  std::move(*output),
                  std::move(*evidence)};
@@ -680,6 +696,13 @@ void streamLoop(PipelineState& state) {
     }
 }
 
+void sessionLoop(PipelineState& state) {
+    pinCurrentThread(sessionCpu, "session", state.log);
+    if (state.session) {
+        state.session->run();
+    }
+}
+
 void recordLoop(PipelineState& state) {
     pinCurrentThread(recordCpu, "record", state.log);
     if (state.record) {
@@ -756,6 +779,10 @@ bool Pipeline::run(const StopSignal& stop) {
     if (pipe.record) {
         recordThread = std::thread{[&pipe] { recordLoop(pipe); }};
     }
+    std::thread sessionThread;
+    if (pipe.session) {
+        sessionThread = std::thread{[&pipe] { sessionLoop(pipe); }};
+    }
     std::thread streamThread;
     if (pipe.stream) {
         streamThread = std::thread{[&pipe] { streamLoop(pipe); }};
@@ -777,6 +804,10 @@ bool Pipeline::run(const StopSignal& stop) {
         pipe.record->queue().close();
         recordThread.join();
     }
+    if (pipe.session) {
+        pipe.session->queue().close();
+        sessionThread.join();
+    }
     evidenceThread.join();
     const EvidenceCounts& saved{pipe.evidence.counts()};
     pipe.log.info("processed ", pipe.counters.frames.load(), " frames, violations ",
@@ -796,6 +827,16 @@ bool Pipeline::run(const StopSignal& stop) {
                       recorded.writeErrors.load(), ", old removed ",
                       recorded.segmentsRemoved.load(), ", queue overflows ", queue.overflowCount(),
                       ", packets dropped ", queue.droppedCount());
+    }
+    if (pipe.session) {
+        const SessionCounts& written{pipe.session->counts()};
+        const PacketQueue& queue{pipe.session->queue()};
+        const std::string path{pipe.session->path()};
+        pipe.log.info("session: ", path.empty() ? "no file" : path, " (",
+                      written.bytesWritten.load(), " bytes), gaps ", written.gaps.load(),
+                      ", write errors ", written.writeErrors.load(), ", ",
+                      written.stopped.load() ? "STOPPED" : "ok", ", queue overflows ",
+                      queue.overflowCount(), ", packets dropped ", queue.droppedCount());
     }
     if (pipe.stream) {
         const StreamCounts& streamed{pipe.stream->counts()};

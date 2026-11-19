@@ -178,6 +178,29 @@ bool setMinFreeGb(AppOptions& options, const char* text) {
     return true;
 }
 
+bool setSession(AppOptions& options, const char* text) {
+    const std::string_view value{text};
+    if (value != "true" && value != "false") {
+        return false;
+    }
+    options.session = value == "true";
+    return true;
+}
+
+bool setSessionOutputDir(AppOptions& options, const char* text) {
+    options.sessionDir = text;
+    return *text != '\0';
+}
+
+bool setSessionMinFreeGb(AppOptions& options, const char* text) {
+    double value{0.0};
+    if (!parseReal(text, 0.0, maxStorageGbLimit, value)) {
+        return false;
+    }
+    options.sessionMinFreeGb = value;
+    return true;
+}
+
 // --archive takes true or false.
 bool setArchive(AppOptions& options, const char* text) {
     const std::string_view value{text};
@@ -275,7 +298,7 @@ struct Flag {
     std::string_view path;
 };
 
-constexpr std::array<Flag, 27> flags{{
+constexpr std::array<Flag, 30> flags{{
     {"--model", setModel, "path of the .rknn model (required unless the config file gives it)",
      JsonKind::String, "model"},
     {"--config", setConfig, "config file, default <app folder>/resource/config/app_config.json",
@@ -322,6 +345,13 @@ constexpr std::array<Flag, 27> flags{{
     {"--archive-min-free-gb", setArchiveMinFreeGb,
      "free gigabytes the archive volume keeps, 0 to 100000", JsonKind::Number,
      "archive.min_free_gb"},
+    {"--session", setSession, "write the video of the whole run to one file, true or false",
+     JsonKind::Boolean, "session.enabled"},
+    {"--session-output-dir", setSessionOutputDir, "folder of the session video", JsonKind::String,
+     "session.output_dir"},
+    {"--session-min-free-gb", setSessionMinFreeGb,
+     "free gigabytes the session volume keeps, 0 to 100000", JsonKind::Number,
+     "session.min_free_gb"},
     {"--stream", setStream, "stream the video live over RTSP, true or false", JsonKind::Boolean,
      "stream.enabled"},
     {"--stream-url", setStreamUrl, "RTSP address the stream is published to", JsonKind::String,

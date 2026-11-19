@@ -37,6 +37,8 @@ constexpr int customDays{7};
 constexpr double expectedMinFree{2.0};
 constexpr double expectedArchiveMinFree{3.0};
 constexpr double customMinFree{1.0};
+constexpr double expectedSessionMinFree{3.0};
+constexpr double customSessionMinFree{0.5};
 constexpr double customArchiveMinFree{4.5};
 constexpr double customSegment{30.0};
 constexpr double customArchiveStorage{2.5};
@@ -120,6 +122,9 @@ void checkDefaults(Check& check) {
                      near(options.archiveMaxStorageGb, defaultArchiveMaxStorageGb) &&
                      options.archiveKeepDays == defaultArchiveKeepDays,
                  "default archive: off, /data/archive, 60 s, 5 GB, 7 days");
+    check.expect(!options.session && options.sessionDir == defaultSessionRoot &&
+                     near(options.sessionMinFreeGb, expectedSessionMinFree),
+                 "default session: off, /data/sessions, 3 GB floor");
     check.expect(!options.stream && options.streamUrl == defaultStreamUrl,
                  "default stream: off, rtsp://127.0.0.1:8554/live");
     check.expect(options.frames == 0, "default: no frame limit");
@@ -171,6 +176,12 @@ void checkEveryFlag(Check& check) {
                                     "3",
                                     "--archive-min-free-gb",
                                     "4.5",
+                                    "--session",
+                                    "true",
+                                    "--session-output-dir",
+                                    "/mnt/usb/sessions",
+                                    "--session-min-free-gb",
+                                    "0.5",
                                     "--stream",
                                     "true",
                                     "--stream-url",
@@ -206,6 +217,9 @@ void checkEveryFlag(Check& check) {
                      near(options.archiveMaxStorageGb, customArchiveStorage) &&
                      options.archiveKeepDays == customArchiveDays,
                  "--archive and its flags");
+    check.expect(options.session && options.sessionDir == "/mnt/usb/sessions" &&
+                     near(options.sessionMinFreeGb, customSessionMinFree),
+                 "--session and its flags");
     check.expect(options.stream && options.streamUrl == "rtsp://10.0.0.2:8554/cam",
                  "--stream and --stream-url");
     check.expect(options.frames == customFrames, "--frames");
@@ -314,6 +328,16 @@ std::vector<Case> cases() {
         {{"--model", "m", "--archive-min-free-gb", "-0.5"}, invalid, "archive floor below 0"},
         {{"--model", "m", "--archive-min-free-gb", "100001"}, invalid, "archive floor above"},
         {{"--model", "m", "--archive-min-free-gb", "0"}, run, "archive floor 0 (off)"},
+        {{"--model", "m", "--session", "true"}, run, "--session true"},
+        {{"--model", "m", "--session", "false"}, run, "--session false"},
+        {{"--model", "m", "--session"}, invalid, "--session without a value"},
+        {{"--session", "--model", "m"}, invalid, "--session followed by a flag"},
+        {{"--model", "m", "--session", "1"}, invalid, "--session 1"},
+        {{"--model", "m", "--session", "TRUE"}, invalid, "--session in capitals"},
+        {{"--model", "m", "--session-output-dir", ""}, invalid, "an empty session folder"},
+        {{"--model", "m", "--session-min-free-gb", "-1"}, invalid, "session floor below 0"},
+        {{"--model", "m", "--session-min-free-gb", "100001"}, invalid, "session floor above"},
+        {{"--model", "m", "--session-min-free-gb", "0"}, run, "session floor 0 (off)"},
         {{"--model", "m", "--frames", "-1"}, invalid, "negative frame count"},
         {{"--model", "m", "--frames", "0"}, run, "frame count 0"},
         {{"--model", "m", "--stats-seconds", "0"}, invalid, "statistics period 0"},
@@ -376,6 +400,7 @@ constexpr const char* everyKeyConfig{R"({
     "keep_days": 3,
     "min_free_gb": 4.5
   },
+  "session": {"enabled": true, "output_dir": "/tmp/sess", "min_free_gb": 0.5},
   "stream": {"enabled": true, "url": "rtsp://10.0.0.2:8554/cam"},
   "run": {"frames": 300, "stats_seconds": 5}
 })"};
@@ -410,6 +435,9 @@ void checkConfigEveryKey(Check& check, const fs::path& root) {
                      options.archiveKeepDays == customArchiveDays &&
                      near(options.archiveMinFreeGb, customArchiveMinFree),
                  "config: archive");
+    check.expect(options.session && options.sessionDir == "/tmp/sess" &&
+                     near(options.sessionMinFreeGb, customSessionMinFree),
+                 "config: session");
     check.expect(options.stream && options.streamUrl == "rtsp://10.0.0.2:8554/cam",
                  "config: stream");
     check.expect(options.frames == customFrames && near(options.statsSeconds, customStats),
@@ -578,6 +606,8 @@ void checkConfigRefusals(Check& check, const fs::path& root) {
         {R"({"model": "m", "rule": {"min_confidence": 1.5}})", "a confidence above 1"},
         {R"({"model": "m", "violation": {"keep_days": 0}})", "keep_days 0"},
         {R"({"model": "m", "violation": {"min_free_gb": -1}})", "violation min_free_gb below 0"},
+        {R"({"model": "m", "session": {"min_free_gb": -1}})", "session min_free_gb below 0"},
+        {R"({"model": "m", "session": {"output_dir": ""}})", "an empty session folder"},
         {R"({"model": "m", "archive": {"min_free_gb": 100001}})", "archive min_free_gb above"},
         {R"({"model": "m", "violation": {"output_dir": ""}})", "an empty violation folder"},
         {R"({"model": "m", "archive": {"output_dir": ""}})", "an empty archive folder"},

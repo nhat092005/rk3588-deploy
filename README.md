@@ -82,6 +82,24 @@ ffplay -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://<board>:8554
 - A viewer that joins sees the picture at the next key frame, at most 1 second.
 - Only the board may publish, anyone on the network may watch (`sh/stream/mediamtx.yml`, no password).
 
+## Video files
+
+Two flags save the finished H.265 video. Both are off by default and can run together.
+
+| | `--archive true` | `--session true` |
+|---|---|---|
+| For | Looking back at the last part | The whole run |
+| File | Segments of 60 s | One file, start to stop |
+| Folder | `/data/archive/<YYYY-MM-DD>/<HHMMSS>.h265` | `/data/sessions/<YYYY-MM-DD>/<HHMMSS>.h265` |
+| Size limit | Deletes the oldest over `max_storage_gb` (5) or `keep_days` (7) | None |
+| Below `min_free_gb` (3) | Deletes the oldest | Closes the file, logs one warning, stops writing |
+| Power cut | Loses the open segment | Loses about 1 s |
+
+- `<HHMMSS>` is the start time. Runs of the same day share the folder. A name taken in the same second gets `_2`.
+- The folder must exist and be writable. For `--session`, a bad folder or a volume already below `min_free_gb` stops the app with exit code 1 before the camera opens.
+- Play a file with `ffplay`. Join segments: `cat <day>/*.h265 > day.h265`.
+- 20 Mbit/s is about 9 GB an hour. `/data` on the board is the 29 GB system card, so for a long run mount a bigger disk and set `--session-output-dir`.
+
 ## Pipeline
 
 ```
@@ -98,9 +116,10 @@ A full queue drops the frame and counts it. It never blocks the producer.
 | writer | Upright copy, outlines, labels, H.265, clip ring |
 | evidence | 2 JPEGs, `event.json`, `clip.h265`, retention |
 | archive | Segment files, only with `--archive true` |
+| session | One file for the run, only with `--session true` |
 | stream | Packets to `ffmpeg`, only with `--stream true` |
 
-Camera, NPU, writer and evidence each have their own big core. The archive thread (core 3) and the stream (core 2) use small cores. Why: `tmp/01_research/2026-11-18_thread-layout-stage7b.md`.
+Camera, NPU, writer and evidence each have their own big core. The archive (core 3), the stream (core 2) and the session (core 1) threads use small cores. Why: `tmp/01_research/2026-11-18_thread-layout-stage7b.md`.
 
 ## Probes
 
