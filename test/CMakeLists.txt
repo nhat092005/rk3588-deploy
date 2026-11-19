@@ -40,6 +40,9 @@ foreach(TEST_SRC ${TEST_SOURCES})
         ${TEST_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${TEST_REL}"
     )
 
+    # bin/test/<library>/<name> on the board.
+    install(TARGETS ${TEST_NAME} RUNTIME DESTINATION bin/test/${TEST_REL})
+
     target_compile_features(${TEST_NAME} PUBLIC cxx_std_17)
 
     target_link_libraries(
