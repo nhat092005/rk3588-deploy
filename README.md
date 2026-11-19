@@ -32,6 +32,8 @@ Build on the PC, run on the board. From this directory:
 
 What to build: set `ON` or `OFF` in `cmake/build_config.cmake` (`BUILD_APP`, `BUILD_TEST_<NAME>`, `BUILD_PROBE_<NAME>`) and run `make`. The file wins over any `-D`. An `OFF` item is not built again, a binary built earlier stays in `build-arm/` until `make distclean`.
 
+Install tree: `cmake --install build-arm --prefix <dir>` copies every app, test and probe that was built to `<dir>/bin/` with the layout of the board (`bin/rk3588_deploy`, `bin/test/<group>/<library>/test_*`, `bin/probes/<group>/probe_*`). The meta-repo `make sync-board` sends that tree. A new test or probe needs no list: it is installed because it is built, and an `OFF` item is not.
+
 Sysroot, copy to the board, board venv: `make sysroot`, `make sync-board`, `make setup-board` from the meta-repo root (see its `README.md`). Binaries land in `~/rk3588-board/deploy/bin/` with the layout of the source tree: `rk3588_deploy`, `probes/<group>/probe_*`, `test/<group>/<library>/test_*`, for example `bin/test/storage/store/test_volume`.
 
 Run: `rk3588_deploy` reads `resource/config/app_config.json` (next to `bin/`, whatever the current folder) and runs with it. A command-line flag wins over the file, the file over the defaults of the code:

@@ -32,6 +32,9 @@ function(add_probe dir name)
     set_target_properties(
         ${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${dir}"
     )
+
+    # bin/probes/<dir>/<name> on the board.
+    install(TARGETS ${name} RUNTIME DESTINATION bin/probes/${dir})
 endfunction()
 
 add_probe(
