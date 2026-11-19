@@ -103,8 +103,17 @@ void feedRange(ClipRecorder& recorder, int first, int last, std::size_t size = p
 // Whether the clip holds packets `first` to `last` in order, whole.
 bool holdsPackets(const ClipRef& clip, int first, int last, std::size_t size = packetBytes) {
     const auto count{static_cast<std::size_t>(last - first + 1)};
-    if (clip.size != count * size) {
+    if (clip.size != count * size || clip.packetCount != count || clip.packets == nullptr) {
         return false;
+    }
+    // The list of packets says what each one is: size, key frame and time.
+    for (std::size_t index{0}; index < count; ++index) {
+        const int number{first + static_cast<int>(index)};
+        const PacketInfo& info{clip.packets[index]};
+        if (info.size != size || info.keyFrame != (number % packetsPerGop == 0) ||
+            std::abs(info.seconds - secondsOf(number)) > nearZero) {
+            return false;
+        }
     }
     for (std::size_t at{0}; at < clip.size; ++at) {
         const int number{first + static_cast<int>(at / size)};

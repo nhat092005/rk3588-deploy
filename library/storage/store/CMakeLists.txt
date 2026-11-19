@@ -1,5 +1,6 @@
 # Violation store: plain C++ and POSIX file calls, builds on the PC.
-add_library(store_lib STATIC violation_store.cpp violation_retention.cpp store_names.cpp volume.cpp)
+add_library(store_lib STATIC violation_store.cpp violation_retention.cpp store_names.cpp volume.cpp
+                      video_file.cpp)
 
 target_include_directories(store_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 

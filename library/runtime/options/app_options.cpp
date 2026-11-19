@@ -178,6 +178,20 @@ bool setViolationClipDownscale(AppOptions& options, const char* text) {
     return parseSwitch(text, options.violationClipDownscale);
 }
 
+// h265 or mp4, nothing else.
+bool parseFormat(const char* text, VideoFormat& format) {
+    const std::optional<VideoFormat> parsed{parseVideoFormat(text)};
+    if (!parsed) {
+        return false;
+    }
+    format = *parsed;
+    return true;
+}
+
+bool setFileFormat(AppOptions& options, const char* text) {
+    return parseFormat(text, options.fileFormat);
+}
+
 bool setViolationClipHeight(AppOptions& options, const char* text) {
     return parseDownscaleHeight(text, options.violationClipHeight);
 }
@@ -363,7 +377,7 @@ struct Flag {
     std::string_view path;
 };
 
-constexpr std::array<Flag, 41> flags{{
+constexpr std::array<Flag, 42> flags{{
     {"--model", setModel, "path of the .rknn model (required unless the config file gives it)",
      JsonKind::String, "model"},
     {"--config", setConfig, "config file, default <app folder>/resource/config/app_config.json",
@@ -378,6 +392,10 @@ constexpr std::array<Flag, 41> flags{{
      "encode.video_kbps"},
     {"--jpeg-quality", setJpegQuality, "JPEG quality factor, 1 to 99", JsonKind::Number,
      "encode.jpeg_quality"},
+    {"--file-format", setFileFormat,
+     "how the video files (clip, archive, session) are stored: h265 (the encoder's bytes) or mp4 "
+     "(fragmented MP4)",
+     JsonKind::String, "encode.file_format"},
     {"--hold-seconds", setHoldSeconds, "seconds before a violation is reported", JsonKind::Number,
      "rule.hold_seconds"},
     {"--gap-seconds", setGapSeconds, "seconds of break that do not end a violation",

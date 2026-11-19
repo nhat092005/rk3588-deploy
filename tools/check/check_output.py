@@ -1,7 +1,7 @@
 """Check the files that probe_output or the application wrote.
 
 Reads one violation directory (original.jpg, marked.jpg, event.json and
-clip.h265). Both JPEGs have the size in event.json, the marked one
+clip.h265 or clip.mp4). Both JPEGs have the size in event.json, the marked one
 differs from the original, the clip decodes with the same size, and the
 number of frames is printed. Exit code 0 when every check passes.
 Usage: check_output.py <violation directory> [--min-frames N]
@@ -18,11 +18,20 @@ import cv2
 import numpy as np
 
 DEFAULT_MIN_FRAMES = 100
+CLIP_NAMES = ("clip.h265", "clip.mp4")
 
 
 def read_jpeg(path: Path) -> np.ndarray | None:
     """Return the decoded image or None."""
     return cv2.imread(str(path))
+
+
+def find_clip(folder: Path) -> Path:
+    """Return the clip of the directory, in whichever format it was saved."""
+    for name in CLIP_NAMES:
+        if (folder / name).exists():
+            return folder / name
+    return folder / CLIP_NAMES[0]
 
 
 def count_clip(path: Path) -> tuple[int, tuple[int, int] | None]:
@@ -50,7 +59,7 @@ def main() -> int:
     width, height = info["image"]["width"], info["image"]["height"]
     original = read_jpeg(folder / "original.jpg")
     marked = read_jpeg(folder / "marked.jpg")
-    frames, clip_size = count_clip(folder / "clip.h265")
+    frames, clip_size = count_clip(find_clip(folder))
     same_size = (height, width)
     differs = False
     if original is not None and marked is not None:

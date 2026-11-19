@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -23,6 +24,7 @@
 
 #include "logger.h"
 #include "segment_writer.h"
+#include "video_file.h"
 
 namespace {
 namespace fs = std::filesystem;
@@ -148,6 +150,65 @@ std::size_t hiddenFiles(const fs::path& directory) {
         count += entry.path().filename().string().front() == '.' ? 1 : 0;
     }
     return count;
+}
+
+// A format that writes two characters for a packet (its value and k or d) and E for the end.
+class MarkWriter final : public VideoFileWriter {
+public:
+    MarkWriter(int descriptor, const Logger& logger) : file{descriptor}, log{logger} {}
+
+    bool write(const std::uint8_t* data, std::size_t /*size*/, bool keyFrame,
+               double /*seconds*/) override {
+        return put(std::string{static_cast<char>('0' + data[0]), keyFrame ? 'k' : 'd'});
+    }
+    bool flush() override {
+        return true;
+    }
+    bool finish() override {
+        return put("E");
+    }
+
+private:
+    bool put(const std::string& text) {
+        return writeBytes(file, reinterpret_cast<const std::uint8_t*>(text.data()), text.size(),
+                          log);
+    }
+
+    int file;
+    Logger log;
+};
+
+std::unique_ptr<VideoFileWriter> makeMarkWriter(int descriptor, const Logger& log) {
+    return std::make_unique<MarkWriter>(descriptor, log);
+}
+
+void checkFormat(Check& check, const fs::path& root, const Logger& log) {
+    const std::string text{root.string()};
+    std::optional<SegmentWriter> writer{SegmentWriter::create(
+        SegmentConfig{text, segmentLength, defaultFileMode, VideoOutput{".mp4", &makeMarkWriter}},
+        log)};
+    check.expect(writer.has_value(), "a writer of another format is created");
+    if (!writer) {
+        return;
+    }
+    const fs::path day{root / "2026-11-18"};
+    const std::time_t start{at(Hms{hourOfFirst, minuteOfFirst, 0})};
+    check.expect(writer->consume(packet(packetB, true, timeSecondFrame), start, true), "key frame");
+    check.expect(fs::exists(day / ".093000.mp4.tmp") && !fs::exists(day / "093000.mp4"),
+                 "the file has a hidden name with the suffix of the format while it is open");
+    check.expect(writer->consume(packet(packetC, false, timeOneSecond), start, true), "a frame");
+    writer->finish();
+    check.expect(readText(day / "093000.mp4") == "2k3dE",
+                 "the writer got the packets and its end came before the file was completed");
+    check.expect(hiddenFiles(day) == 0 && !fs::exists(day / "093000.h265"),
+                 "no temporary file and no .h265 file");
+    const std::vector<ClosedSegment> closed{writer->takeClosed()};
+    check.expect(closed.size() == 1 && closed.front().path == (day / "093000.mp4").string(),
+                 "the closed segment has the name of the format");
+    check.expect(
+        !SegmentWriter::create(
+            SegmentConfig{text, segmentLength, defaultFileMode, VideoOutput{".mp4", nullptr}}, log),
+        "a format without a writer is refused");
 }
 
 void checkSegments(Check& check, const fs::path& root, const Logger& log) {
@@ -325,6 +386,7 @@ int main() {
     tzset();
     Check check{report};
     withRoot(check, log, checkSegments);
+    withRoot(check, log, checkFormat);
     withRoot(check, log, checkGapAndRefusal);
     withRoot(check, log, checkNames);
     withRoot(check, log, checkMode);

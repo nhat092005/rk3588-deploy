@@ -384,6 +384,8 @@ void BranchState::queueClips() {
         job.eventId = clip->eventId;
         job.data = clip->data;
         job.size = clip->size;
+        job.packets = clip->packets;
+        job.packetCount = clip->packetCount;
         if (!evidence->queue.put(job)) {
             clips->release(clip->slot);
             ++totals.clipsSkipped;

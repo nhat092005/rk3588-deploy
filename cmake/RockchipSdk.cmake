@@ -39,3 +39,7 @@ add_library(sdk_mpp INTERFACE)
 target_include_directories(sdk_mpp SYSTEM INTERFACE "${CMAKE_SYSROOT}/usr/include/rockchip")
 target_link_libraries(sdk_mpp INTERFACE rockchip_mpp)
 add_library(rockchip::mpp ALIAS sdk_mpp)
+
+# Container writer (MP4): libavformat of the board's ffmpeg 4.x, with its codec and util libraries
+add_library(sdk_av INTERFACE)
+target_link_libraries(sdk_av INTERFACE avformat avcodec avutil)

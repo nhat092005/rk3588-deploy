@@ -4,6 +4,7 @@
 #include <ctime>
 #include <utility>
 
+#include "mp4_writer.h"
 #include "violation_retention.h"
 
 namespace {
@@ -161,8 +162,9 @@ void EvidenceWorker::State::saveImages(EvidenceSlot& slot) {
 
 void EvidenceWorker::State::saveClip(EvidenceHub& hub, const EvidenceJob& job) {
     const std::string* directory{find(job.eventId)};
-    const bool saved{directory != nullptr && hasRoom() &&
-                     store.saveClip(*directory, StoredBytes{job.data, job.size})};
+    const bool saved{
+        directory != nullptr && hasRoom() &&
+        store.saveClip(*directory, StoredClip{job.data, job.size, job.packets, job.packetCount})};
     if (saved) {
         retention.addBytes(*directory, job.size);
         counts.clipsSaved.fetch_add(1);
@@ -185,8 +187,8 @@ std::optional<EvidenceWorker> EvidenceWorker::create(const AppOptions& options, 
     // The images are the size the event refers to; without them, the frame.
     const ImageSize size{options.violationImage ? image : frame};
     const float boxScale{static_cast<float>(size.height) / static_cast<float>(frame.height)};
-    std::optional<ViolationStore> store{
-        ViolationStore::create(StoreConfig{options.outputDir, defaultFileMode}, log)};
+    std::optional<ViolationStore> store{ViolationStore::create(
+        StoreConfig{options.outputDir, defaultFileMode, videoOutputOf(options.fileFormat)}, log)};
     const JpegConfig config{size.width,  size.height, stride,
                             size.height, fullRange,   options.jpegQuality};
     std::optional<JpegEncoder> first;

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "logger.h"
+#include "video_file.h"
 
 /** @brief Frame rate assumed when none is given. */
 constexpr int defaultClipFps{30};
@@ -41,6 +42,10 @@ struct ClipRef {
     /** Seconds of the first packet and of the event, on the clock of addPacket(). */
     double startSeconds{0.0};
     double eventSeconds{0.0};
+    /** The packets that the bytes are made of, in order: their sizes add up to `size`. Valid as
+     *  long as the bytes. */
+    const PacketInfo* packets{nullptr};
+    std::size_t packetCount{0};
 };
 
 /** @brief State of the clips and the ring. Defined in clip_recorder.cpp. */

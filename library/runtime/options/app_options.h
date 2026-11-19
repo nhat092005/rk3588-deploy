@@ -83,6 +83,9 @@ struct AppOptions {
     /** Video bitrate in kilobits per second and JPEG quality factor. */
     int videoKbps{defaultVideoKbps};
     int jpegQuality{defaultJpegQuality};
+    /** How the video files (the clip of a violation, the archive and the session) are stored: raw
+     *  H.265 or fragmented MP4. */
+    VideoFormat fileFormat{VideoFormat::H265};
     /** Violation rule: seconds before a violation is reported, seconds of break that do not end
      *  it, and the lowest confidence of a NoHelmet or NoVest box. */
     double holdSeconds{defaultHoldSeconds};
@@ -168,16 +171,18 @@ struct ParseResult {
  *
  * The command line is `--name value` pairs in any order (a flag given twice keeps its last
  * value), `--config <file>` to read another config file (it must exist), and `--help`. The flags:
- * --model, --node, --width, --height, --rotation, --video-kbps, --jpeg-quality, --hold-seconds,
+ * --model, --node, --width, --height, --rotation, --video-kbps, --jpeg-quality, --file-format (h265
+ * or mp4), --hold-seconds,
  * --gap-seconds, --min-confidence, --violation (true or false), --violation-output-dir,
  * --violation-image (true or false), --violation-clip (true or false),
  * --violation-clip-pre-seconds, --violation-clip-post-seconds, --violation-image-downscale (true or
  * false), --violation-image-downscale-height, --violation-clip-downscale,
- * --violation-clip-downscale-height, --max-storage-gb, --keep-days, --violation-min-free-gb,
+ * --violation-clip-downscale-height, --max-storage-gb,
+ * --keep-days, --violation-min-free-gb,
  * --archive (true or false),
  * --archive-output-dir, --archive-segment-seconds, --archive-max-storage-gb, --archive-keep-days,
- * --archive-min-free-gb, --archive-downscale, --archive-downscale-height, --session (true or
- * false), --session-output-dir, --session-min-free-gb, --session-downscale,
+ * --archive-min-free-gb, --archive-downscale, --archive-downscale-height,
+ * --session (true or false), --session-output-dir, --session-min-free-gb, --session-downscale,
  * --session-downscale-height,
  * --stream (true or false), --stream-url, --frames, --stats-seconds.
  *

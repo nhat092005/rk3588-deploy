@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "recording_retention.h"
+#include "mp4_writer.h"
 #include "segment_writer.h"
 #include "video_encoder.h"
 
@@ -76,8 +77,10 @@ std::optional<RecordWorker> RecordWorker::create(const AppOptions& options, cons
         static_cast<std::size_t>(static_cast<double>(bytesPerSecond) * ringSeconds) * ringMargin};
     std::unique_ptr<PacketQueue> queue{
         PacketQueue::create(ringBytes, maxQueuedPackets, defaultVideoCapacity)};
-    std::optional<SegmentWriter> writer{SegmentWriter::create(
-        SegmentConfig{options.archiveDir, options.archiveSegmentSeconds, defaultFileMode}, log)};
+    std::optional<SegmentWriter> writer{
+        SegmentWriter::create(SegmentConfig{options.archiveDir, options.archiveSegmentSeconds,
+                                            defaultFileMode, videoOutputOf(options.fileFormat)},
+                              log)};
     std::optional<RecordingRetention> retention{RecordingRetention::create(
         RecordingRetentionConfig{
             options.archiveDir,

@@ -1,6 +1,6 @@
 """Check the segments that the continuous recording wrote.
 
-Decodes every .h265 file under a recordings folder and prints its number
+Decodes every .h265 and .mp4 file under a recordings folder and prints its number
 of frames and size. A segment passes when it decodes with the same size
 every time and its length is within 20 percent of the expected number of
 frames (30 frames per second times the segment length). The last segment
@@ -18,6 +18,7 @@ from pathlib import Path
 import cv2
 
 TOLERANCE = 0.2
+SUFFIXES = ("*.h265", "*.mp4")
 
 
 def count_frames(path: Path) -> tuple[int, tuple[int, int] | None]:
@@ -42,7 +43,9 @@ def main() -> int:
     parser.add_argument("--fps", type=float, default=30.0)
     args = parser.parse_args()
     expected = args.segment_seconds * args.fps
-    files = sorted(args.folder.rglob("*.h265"))
+    files = sorted(
+        path for suffix in SUFFIXES for path in args.folder.rglob(suffix)
+    )
     if not files:
         print("FAIL no segment found")
         return 1

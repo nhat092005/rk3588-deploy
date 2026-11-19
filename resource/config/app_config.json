@@ -8,7 +8,8 @@
   },
   "encode": {
     "video_kbps": 20000,
-    "jpeg_quality": 90
+    "jpeg_quality": 90,
+    "file_format": "h265"
   },
   "rule": {
     "hold_seconds": 1.0,

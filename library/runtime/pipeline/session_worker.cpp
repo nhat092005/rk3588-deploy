@@ -4,6 +4,7 @@
 #include <ctime>
 #include <utility>
 
+#include "mp4_writer.h"
 #include "session_writer.h"
 #include "video_encoder.h"
 #include "violation_retention.h"
@@ -38,7 +39,7 @@ std::optional<SessionWorker> SessionWorker::create(const AppOptions& options, co
     std::optional<SessionWriter> writer{SessionWriter::create(
         SessionConfig{options.sessionDir,
                       static_cast<std::uint64_t>(options.sessionMinFreeGb * bytesPerGigabyte),
-                      defaultFileMode, nullptr},
+                      defaultFileMode, nullptr, videoOutputOf(options.fileFormat)},
         log)};
     if (!queue || !writer) {
         return std::nullopt;

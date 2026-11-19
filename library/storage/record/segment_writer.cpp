@@ -18,8 +18,7 @@ constexpr std::size_t timeBufferBytes{64};
 constexpr int maxNameAttempts{100};
 constexpr unsigned readBits{0444U};
 constexpr unsigned executeShift{2U};
-constexpr const char* segmentSuffix{".h265"};
-constexpr const char* tempSuffix{".h265.tmp"};
+constexpr const char* tempEnding{".tmp"};
 
 unsigned directoryMode(unsigned fileMode) noexcept {
     return fileMode | ((fileMode & readBits) >> executeShift);
@@ -45,24 +44,6 @@ void syncDirectory(const std::string& path, const Logger& log) noexcept {
         log.warn("fsync ", path, ": ", lastError());
     }
 }
-
-// Writes every byte. false on an error (the cause is logged).
-bool writeAll(const FileDescriptor& file, const std::vector<std::uint8_t>& bytes,
-              const Logger& log) noexcept {
-    std::size_t done{0};
-    while (done < bytes.size()) {
-        const ssize_t count{::write(file.get(), bytes.data() + done, bytes.size() - done)};
-        if (count < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            log.error("write: ", lastError());
-            return false;
-        }
-        done += static_cast<std::size_t>(count);
-    }
-    return true;
-}
 } // namespace
 
 std::optional<SegmentWriter> SegmentWriter::create(const SegmentConfig& config, const Logger& log) {
@@ -70,6 +51,10 @@ std::optional<SegmentWriter> SegmentWriter::create(const SegmentConfig& config, 
     struct stat info {};
     if (config.segmentSeconds <= 0.0) {
         log.error("segment length must be above 0");
+        return std::nullopt;
+    }
+    if (config.output.open == nullptr) {
+        log.error("recording: no writer for the format ", config.output.suffix);
         return std::nullopt;
     }
     if (::stat(root.c_str(), &info) != 0) {
@@ -115,16 +100,24 @@ bool SegmentWriter::open(std::time_t wallNow, const QueuedPacket& first) {
         finalPath = dayPath;
         finalPath += '/';
         finalPath += name;
-        finalPath += segmentSuffix;
+        finalPath += output.suffix;
         tempPath = dayPath;
         tempPath += "/.";
         tempPath += name;
-        tempPath += tempSuffix;
+        tempPath += output.suffix;
+        tempPath += tempEnding;
         if (!exists(finalPath) && !exists(tempPath)) {
             file = FileDescriptor{
                 ::open(tempPath.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, fileMode), log};
             if (!file.valid()) {
                 log.error("open ", tempPath, ": ", lastError());
+                return false;
+            }
+            video = output.open(file.get(), log);
+            if (!video) {
+                const std::error_code ignored{file.close()};
+                (void)ignored;
+                (void)::unlink(tempPath.c_str());
                 return false;
             }
             segmentStart = first.seconds;
@@ -141,10 +134,16 @@ bool SegmentWriter::close() {
     if (!file.valid()) {
         return true;
     }
-    const bool flushed{::fchmod(file.get(), fileMode) == 0 && ::fsync(file.get()) == 0};
+    const bool ended{video->finish()};
+    video.reset();
+    const bool flushed{ended && ::fchmod(file.get(), fileMode) == 0 && ::fsync(file.get()) == 0};
     const std::error_code closing{file.close()};
     if (!flushed || closing) {
-        log.error("closing ", tempPath, ": ", flushed ? closing.message() : lastError().message());
+        std::string cause{"the writer failed"};
+        if (ended) {
+            cause = flushed ? closing.message() : lastError().message();
+        }
+        log.error("closing ", tempPath, ": ", cause);
         (void)::unlink(tempPath.c_str());
         return false;
     }
@@ -161,6 +160,7 @@ bool SegmentWriter::close() {
 
 // Throws away the open file after a failure.
 void SegmentWriter::discard() {
+    video.reset();
     if (file.valid()) {
         const std::error_code ignored{file.close()};
         (void)ignored;
@@ -183,7 +183,7 @@ bool SegmentWriter::consume(const QueuedPacket& packet, std::time_t wallNow, boo
         ++skipped;
         return true;
     }
-    if (!writeAll(file, packet.bytes, log)) {
+    if (!video->write(packet.bytes.data(), packet.bytes.size(), packet.keyFrame, packet.seconds)) {
         discard();
         return false;
     }

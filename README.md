@@ -93,11 +93,12 @@ Two flags save the finished H.265 video. Both are off by default and can run tog
 | Folder | `/data/archive/<YYYY-MM-DD>/<HHMMSS>.h265` | `/data/sessions/<YYYY-MM-DD>/<HHMMSS>.h265` |
 | Size limit | Deletes the oldest over `max_storage_gb` (5) or `keep_days` (7) | None |
 | Below `min_free_gb` (3) | Deletes the oldest | Closes the file, logs one warning, stops writing |
-| Power cut | Loses the open segment | Loses about 1 s |
+| Power cut | Loses the open segment | Loses about 1 s (about 1 to 2 s with `mp4`) |
 
 - `<HHMMSS>` is the start time. Runs of the same day share the folder. A name taken in the same second gets `_2`.
 - The folder must exist and be writable. For `--session`, a bad folder or a volume already below `min_free_gb` stops the app with exit code 1 before the camera opens.
 - Play a file with `ffplay`. Join segments: `cat <day>/*.h265 > day.h265`.
+- `--file-format` takes `h265` (default, the encoder's bytes) or `mp4` (fragmented MP4: the file is `.mp4`, has the time of every frame, and still plays after a power cut). It applies to the archive, the session and the clip of a violation. Details in `resource/config/README.md`.
 - `downscale` (in the group of the output, see `resource/config/README.md`) writes smaller video: `--archive-downscale true --archive-downscale-height 1080`. The target bitrate follows the pixels, so a 1080 stream aims at a quarter of the 4K one.
 - The low heap of the board (about 75 MB usable) is nearly full with the violation images at the camera size, so a scaled video output also needs `--violation-image-downscale true` or `--violation-image false`. The app says so and exits with code 1 when it runs out.
 - 20 Mbit/s is about 9 GB an hour. `/data` on the board is the 29 GB system card, so for a long run mount a bigger disk and set `--session-output-dir`.
@@ -116,7 +117,7 @@ A full queue drops the frame and counts it. It never blocks the producer.
 | camera | V4L2 dequeue, RGA letterbox |
 | NPU | Inference, decode, tracker, rule |
 | writer | Upright copy, outlines, labels, H.265, clip ring |
-| evidence | 2 JPEGs, `event.json`, `clip.h265`, retention. Not started with `--violation false` |
+| evidence | 2 JPEGs, `event.json`, the clip (`clip.h265` or `clip.mp4`), retention. Not started with `--violation false` |
 | archive | Segment files, only with `--archive true` |
 | session | One file for the run, only with `--session true` |
 | stream | Packets to `ffmpeg`, only with `--stream true` |

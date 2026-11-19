@@ -21,6 +21,7 @@ if(CMAKE_CROSSCOMPILING)
                mpp_lib
                clip_lib
                record_lib
+               mux_lib
                stream_lib
                store_lib
                rule_lib

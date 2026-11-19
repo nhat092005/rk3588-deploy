@@ -103,9 +103,11 @@ void checkScanAndSweep(Check& check, const fs::path& root, const Logger& log) {
     (void)makeFile(root, "2026-11-17", "100000.h265", segmentBytes);
     (void)makeFile(root, "2026-11-17", "100100_2.h265", segmentBytes);
     (void)makeFile(root, "2026-11-18", "090000.h265", segmentBytes);
+    // A segment of the other format: the format may change between runs.
+    (void)makeFile(root, "2026-11-18", "091000.mp4", segmentBytes);
     // Not ours: wrong names, other suffixes, a directory, links, odd dates.
     (void)makeFile(root, "2026-11-17", "notes.txt", segmentBytes);
-    (void)makeFile(root, "2026-11-17", "100200.mp4", segmentBytes);
+    (void)makeFile(root, "2026-11-17", "100200.mkv", segmentBytes);
     (void)makeFile(root, "2026-11-17", "10020.h265", segmentBytes);
     (void)makeFile(root, "2026-11-17", "100200_.h265", segmentBytes);
     (void)makeFile(root, "2026-11-17", "100200_x.h265", segmentBytes);
@@ -124,7 +126,8 @@ void checkScanAndSweep(Check& check, const fs::path& root, const Logger& log) {
     const fs::path leftover{makeFile(root, "2026-11-17", ".100300.h265.tmp", segmentBytes)};
     const fs::path leftoverTwo{makeFile(root, "2026-11-18", ".090100_2.h265.tmp", segmentBytes)};
     const fs::path foreignHidden{makeFile(root, "2026-11-17", ".hidden.tmp", segmentBytes)};
-    const fs::path hiddenTmp{makeFile(root, "2026-11-17", ".100400.mp4.tmp", segmentBytes)};
+    const fs::path leftoverMp4{makeFile(root, "2026-11-17", ".100400.mp4.tmp", segmentBytes)};
+    const fs::path hiddenTmp{makeFile(root, "2026-11-17", ".100400.mkv.tmp", segmentBytes)};
     const fs::path outsideDay{makeFile(root, "backup", ".100300.h265.tmp", segmentBytes)};
     const fs::path notHidden{makeFile(root, "2026-11-17", "100300.h265.tmp", segmentBytes)};
     const fs::path shifted{makeFile(root, "2026-11-17", "x100300.h265.tmp", segmentBytes)};
@@ -138,11 +141,12 @@ void checkScanAndSweep(Check& check, const fs::path& root, const Logger& log) {
     if (!retention) {
         return;
     }
-    check.expect(retention->count() == three && retention->totalBytes() == three * segmentBytes,
-                 "only the three segments of SegmentWriter");
-    check.expect(retention->sweptCount() == two && !fs::exists(leftover) &&
-                     !fs::exists(leftoverTwo),
-                 "the leftover temporary files are removed");
+    check.expect(retention->count() == three + 1 &&
+                     retention->totalBytes() == (three + 1) * segmentBytes,
+                 "only the segments of SegmentWriter, in both formats");
+    check.expect(retention->sweptCount() == three && !fs::exists(leftover) &&
+                     !fs::exists(leftoverTwo) && !fs::exists(leftoverMp4),
+                 "the leftover temporary files are removed, in both formats");
     check.expect(fs::exists(foreignHidden) && fs::exists(hiddenTmp) && fs::exists(outsideDay),
                  "hidden files with other names, and a day that is not a day, stay");
     check.expect(fs::exists(notHidden) && fs::exists(shifted) && fs::exists(badStem) &&

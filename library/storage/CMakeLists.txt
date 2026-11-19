@@ -2,3 +2,4 @@
 add_subdirectory(store)
 add_subdirectory(clip)
 add_subdirectory(record)
+add_subdirectory(mux)

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <ctime>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -11,6 +12,7 @@
 #include "handles.h"
 #include "logger.h"
 #include "packet_queue.h"
+#include "video_file.h"
 #include "violation_store.h"
 
 /** @brief Defaults of the session video: the folder and the free space that the volume keeps. */
@@ -32,20 +34,23 @@ struct SessionConfig {
     /** How the free space is read. Null means the real volume (volumeFreeBytes). A test gives its
      *  own. */
     FreeSpaceFunction freeSpace{nullptr};
+    /** The format of the file: `.h265` as the encoder wrote it (the default), or another. */
+    VideoOutput output{rawVideoOutput};
 };
 
 /**
  * @brief Writes the packets of an H.265 stream of one run into one file:
- *        `<root>/<YYYY-MM-DD>/<HHMMSS>.h265`, named by the wall-clock time at which the first key
- *        frame arrives (a second run in the same second gets `_2`, `_3` and so on).
+ *        `<root>/<YYYY-MM-DD>/<HHMMSS>.h265` (or `.mp4`, see SessionConfig::output), named by the
+ *        wall-clock time at which the first key frame arrives (a second run in the same second gets
+ *        `_2`, `_3` and so on).
  *
  * The file has its final name from the start and is flushed with fsync at every key frame (so a
- * power cut loses about a second) and when the run ends. A raw H.265 stream plays when it is cut
- * short, which is why there is no temporary name. A gap in the stream (the queue was full) does
- * not start a new file: the key frame after it carries the VPS, SPS and PPS, so the stream goes on.
- * A failure never removes the file: the video that was written is kept, the writing stops for the
- * rest of the run and the reason is logged once. It allocates strings and waits for the disk: it
- * belongs to a thread of its own.
+ * power cut loses about a second or two) and when the run ends. A raw H.265 stream and a
+ * fragmented MP4 play when they are cut short, which is why there is no temporary name. A gap in
+ * the stream (the queue was full) does not start a new file: the key frame after it carries the
+ * VPS, SPS and PPS, so the stream goes on. A failure never removes the file: the video that was
+ * written is kept, the writing stops for the rest of the run and the reason is logged once. It
+ * allocates strings and waits for the disk: it belongs to a thread of its own.
  */
 class SessionWriter {
 public:
@@ -87,7 +92,8 @@ public:
         return filePath;
     }
 
-    /** @brief Bytes written to the file. */
+    /** @brief Bytes of the packets that were written to the file (an MP4 file is a little larger).
+     */
     std::uint64_t bytesWritten() const noexcept {
         return written;
     }
@@ -115,8 +121,10 @@ private:
     std::uint64_t minFreeBytes;
     unsigned fileMode;
     FreeSpaceFunction freeSpace;
+    VideoOutput output;
     Logger log;
     FileDescriptor file;
+    std::unique_ptr<VideoFileWriter> video;
     std::string filePath;
     std::uint64_t written{0};
     std::size_t gaps{0};
