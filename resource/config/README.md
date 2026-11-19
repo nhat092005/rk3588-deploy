@@ -17,6 +17,7 @@
 - An unknown key or group, a key in the wrong group, a wrong kind of value or a value out of range stops the app and names the key (`camera.width`).
 - Every flag takes a value, `--archive` and `--stream` too (`--archive false`), so a flag can turn off what the file turned on.
 - `--config` and `--help` have no key. `--help` lists the flags.
+- `min_free_gb` is the free space that the disk of that folder keeps. Below it the oldest files of the folder go. Keep the archive above the violations (3 and 2 by default), so that video goes before evidence. 0 turns it off.
 
 ## Keys
 
@@ -37,11 +38,13 @@
 | `violation.clip_post_seconds` | `--clip-post-seconds` | 5.0 | number, 0 to 60 (both 0: no clip) |
 | `violation.max_storage_gb` | `--max-storage-gb` | 4.0 | number, above 0 to 100000 |
 | `violation.keep_days` | `--keep-days` | 30 | number, 1 to 3650 |
+| `violation.min_free_gb` | `--violation-min-free-gb` | 2.0 | number, 0 to 100000 (0: off) |
 | `archive.enabled` | `--archive` | `false` | `true` or `false` |
 | `archive.output_dir` | `--archive-output-dir` | `/data/archive` | string |
 | `archive.segment_seconds` | `--archive-segment-seconds` | 60 | number, above 0 to 3600 |
 | `archive.max_storage_gb` | `--archive-max-storage-gb` | 5.0 | number, above 0 to 100000 |
 | `archive.keep_days` | `--archive-keep-days` | 7 | number, 1 to 3650 |
+| `archive.min_free_gb` | `--archive-min-free-gb` | 3.0 | number, 0 to 100000 (0: off) |
 | `stream.enabled` | `--stream` | `false` | `true` or `false` |
 | `stream.url` | `--stream-url` | `rtsp://127.0.0.1:8554/live` | string, `rtsp://host[:port]/path` |
 | `run.frames` | `--frames` | 0 | number, 0 to 10^12 (0: no limit) |

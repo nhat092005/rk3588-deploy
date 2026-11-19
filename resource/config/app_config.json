@@ -20,14 +20,16 @@
     "clip_pre_seconds": 5.0,
     "clip_post_seconds": 5.0,
     "max_storage_gb": 4.0,
-    "keep_days": 30
+    "keep_days": 30,
+    "min_free_gb": 2.0
   },
   "archive": {
     "enabled": false,
     "output_dir": "/data/archive",
     "segment_seconds": 60,
     "max_storage_gb": 5.0,
-    "keep_days": 7
+    "keep_days": 7,
+    "min_free_gb": 3.0
   },
   "stream": {
     "enabled": false,

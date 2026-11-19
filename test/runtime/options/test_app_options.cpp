@@ -34,6 +34,10 @@ constexpr double customStats{5.0};
 constexpr int repeatedWidth{640};
 constexpr double customStorage{1.5};
 constexpr int customDays{7};
+constexpr double expectedMinFree{2.0};
+constexpr double expectedArchiveMinFree{3.0};
+constexpr double customMinFree{1.0};
+constexpr double customArchiveMinFree{4.5};
 constexpr double customSegment{30.0};
 constexpr double customArchiveStorage{2.5};
 constexpr int customArchiveDays{3};
@@ -108,6 +112,9 @@ void checkDefaults(Check& check) {
     check.expect(near(options.maxStorageGb, defaultMaxStorageGb) &&
                      options.keepDays == defaultKeepDays,
                  "default retention");
+    check.expect(near(options.minFreeGb, expectedMinFree) &&
+                     near(options.archiveMinFreeGb, expectedArchiveMinFree),
+                 "default free-space floors: 2 GB violations, 3 GB archive");
     check.expect(!options.archive && options.archiveDir == defaultArchiveRoot &&
                      near(options.archiveSegmentSeconds, defaultSegmentSeconds) &&
                      near(options.archiveMaxStorageGb, defaultArchiveMaxStorageGb) &&
@@ -150,6 +157,8 @@ void checkEveryFlag(Check& check) {
                                     "1.5",
                                     "--keep-days",
                                     "7",
+                                    "--violation-min-free-gb",
+                                    "1",
                                     "--archive",
                                     "true",
                                     "--archive-output-dir",
@@ -160,6 +169,8 @@ void checkEveryFlag(Check& check) {
                                     "2.5",
                                     "--archive-keep-days",
                                     "3",
+                                    "--archive-min-free-gb",
+                                    "4.5",
                                     "--stream",
                                     "true",
                                     "--stream-url",
@@ -187,6 +198,9 @@ void checkEveryFlag(Check& check) {
                  "--clip-pre-seconds and --clip-post-seconds");
     check.expect(near(options.maxStorageGb, customStorage) && options.keepDays == customDays,
                  "--max-storage-gb and --keep-days");
+    check.expect(near(options.minFreeGb, customMinFree) &&
+                     near(options.archiveMinFreeGb, customArchiveMinFree),
+                 "--violation-min-free-gb and --archive-min-free-gb");
     check.expect(options.archive && options.archiveDir == "/mnt/usb/archive" &&
                      near(options.archiveSegmentSeconds, customSegment) &&
                      near(options.archiveMaxStorageGb, customArchiveStorage) &&
@@ -293,6 +307,13 @@ std::vector<Case> cases() {
          "archive storage above the limit"},
         {{"--model", "m", "--archive-keep-days", "0"}, invalid, "archive keep 0 days"},
         {{"--model", "m", "--archive-keep-days", "3651"}, invalid, "archive keep above the limit"},
+        {{"--model", "m", "--violation-min-free-gb", "-1"}, invalid, "violation floor below 0"},
+        {{"--model", "m", "--violation-min-free-gb", "100001"}, invalid, "violation floor above"},
+        {{"--model", "m", "--violation-min-free-gb", "0"}, run, "violation floor 0 (off)"},
+        {{"--model", "m", "--violation-min-free-gb", "abc"}, invalid, "violation floor text"},
+        {{"--model", "m", "--archive-min-free-gb", "-0.5"}, invalid, "archive floor below 0"},
+        {{"--model", "m", "--archive-min-free-gb", "100001"}, invalid, "archive floor above"},
+        {{"--model", "m", "--archive-min-free-gb", "0"}, run, "archive floor 0 (off)"},
         {{"--model", "m", "--frames", "-1"}, invalid, "negative frame count"},
         {{"--model", "m", "--frames", "0"}, run, "frame count 0"},
         {{"--model", "m", "--stats-seconds", "0"}, invalid, "statistics period 0"},
@@ -344,14 +365,16 @@ constexpr const char* everyKeyConfig{R"({
     "clip_pre_seconds": 2.5,
     "clip_post_seconds": 7,
     "max_storage_gb": 1.5,
-    "keep_days": 7
+    "keep_days": 7,
+    "min_free_gb": 1
   },
   "archive": {
     "enabled": true,
     "output_dir": "/tmp/rec",
     "segment_seconds": 30,
     "max_storage_gb": 2.5,
-    "keep_days": 3
+    "keep_days": 3,
+    "min_free_gb": 4.5
   },
   "stream": {"enabled": true, "url": "rtsp://10.0.0.2:8554/cam"},
   "run": {"frames": 300, "stats_seconds": 5}
@@ -378,12 +401,14 @@ void checkConfigEveryKey(Check& check, const fs::path& root) {
                  "config: encode and rule");
     check.expect(options.outputDir == "/tmp/out" && near(options.clipPreSeconds, customPre) &&
                      near(options.clipPostSeconds, customPost) &&
-                     near(options.maxStorageGb, customStorage) && options.keepDays == customDays,
+                     near(options.maxStorageGb, customStorage) && options.keepDays == customDays &&
+                     near(options.minFreeGb, customMinFree),
                  "config: violation");
     check.expect(options.archive && options.archiveDir == "/tmp/rec" &&
                      near(options.archiveSegmentSeconds, customSegment) &&
                      near(options.archiveMaxStorageGb, customArchiveStorage) &&
-                     options.archiveKeepDays == customArchiveDays,
+                     options.archiveKeepDays == customArchiveDays &&
+                     near(options.archiveMinFreeGb, customArchiveMinFree),
                  "config: archive");
     check.expect(options.stream && options.streamUrl == "rtsp://10.0.0.2:8554/cam",
                  "config: stream");
@@ -552,6 +577,8 @@ void checkConfigRefusals(Check& check, const fs::path& root) {
         {R"({"model": ""})", "an empty model"},
         {R"({"model": "m", "rule": {"min_confidence": 1.5}})", "a confidence above 1"},
         {R"({"model": "m", "violation": {"keep_days": 0}})", "keep_days 0"},
+        {R"({"model": "m", "violation": {"min_free_gb": -1}})", "violation min_free_gb below 0"},
+        {R"({"model": "m", "archive": {"min_free_gb": 100001}})", "archive min_free_gb above"},
         {R"({"model": "m", "violation": {"output_dir": ""}})", "an empty violation folder"},
         {R"({"model": "m", "archive": {"output_dir": ""}})", "an empty archive folder"},
         {R"({"model": "m", )", "a cut text"},

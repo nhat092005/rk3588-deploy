@@ -32,6 +32,10 @@ constexpr double maxSegmentSeconds{3600.0};
 /** @brief Largest storage limit and age accepted. */
 constexpr double maxStorageGbLimit{100'000.0};
 constexpr int maxKeepDays{3650};
+/** @brief Free space the volume keeps, in gigabytes, as the retention libraries define it. */
+constexpr double defaultMinFreeGb{static_cast<double>(defaultMinFreeBytes) / bytesPerGigabyte};
+constexpr double defaultArchiveMinFreeGb{static_cast<double>(defaultArchiveMinFreeBytes) /
+                                         bytesPerGigabyte};
 /** @brief Largest camera side accepted, in pixels. */
 constexpr int maxCameraSide{16'384};
 
@@ -70,6 +74,9 @@ struct AppOptions {
      *  violation this many days. The oldest go first. */
     double maxStorageGb{defaultMaxStorageGb};
     int keepDays{defaultKeepDays};
+    /** Free gigabytes that the volume of the violations must keep: below it the oldest violations
+     *  go. 0 turns the limit off. */
+    double minFreeGb{defaultMinFreeGb};
     /** Archive of the video in segment files, off unless --archive true is given: the segments go
      * to archiveDir, archiveSegmentSeconds long, within their own size and age limits. */
     bool archive{false};
@@ -77,6 +84,9 @@ struct AppOptions {
     double archiveSegmentSeconds{defaultSegmentSeconds};
     double archiveMaxStorageGb{defaultArchiveMaxStorageGb};
     int archiveKeepDays{defaultArchiveKeepDays};
+    /** The same for the volume of the archive. Keep it above the one of the violations, so that
+     *  the video is trimmed before a violation is. */
+    double archiveMinFreeGb{defaultArchiveMinFreeGb};
     /** Live stream of the video, off unless --stream true is given: ffmpeg publishes it to
      *  streamUrl (an RTSP server such as MediaMTX must listen there). */
     bool stream{false};
@@ -126,8 +136,10 @@ struct ParseResult {
  * value), `--config <file>` to read another config file (it must exist), and `--help`. The flags:
  * --model, --node, --width, --height, --rotation, --video-kbps, --jpeg-quality, --hold-seconds,
  * --gap-seconds, --min-confidence, --violation-output-dir, --clip-pre-seconds,
- * --clip-post-seconds, --max-storage-gb, --keep-days, --archive (true or false),
+ * --clip-post-seconds, --max-storage-gb, --keep-days, --violation-min-free-gb, --archive (true or
+ * false),
  * --archive-output-dir, --archive-segment-seconds, --archive-max-storage-gb, --archive-keep-days,
+ * --archive-min-free-gb,
  * --stream (true or false), --stream-url, --frames, --stats-seconds.
  *
  * The config file is one JSON object: `model` at the top and the other options in groups

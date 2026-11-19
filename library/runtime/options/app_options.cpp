@@ -169,6 +169,15 @@ bool setKeepDays(AppOptions& options, const char* text) {
     return true;
 }
 
+bool setMinFreeGb(AppOptions& options, const char* text) {
+    double value{0.0};
+    if (!parseReal(text, 0.0, maxStorageGbLimit, value)) {
+        return false;
+    }
+    options.minFreeGb = value;
+    return true;
+}
+
 // --archive takes true or false.
 bool setArchive(AppOptions& options, const char* text) {
     const std::string_view value{text};
@@ -216,6 +225,15 @@ bool setArchiveMaxStorageGb(AppOptions& options, const char* text) {
     return true;
 }
 
+bool setArchiveMinFreeGb(AppOptions& options, const char* text) {
+    double value{0.0};
+    if (!parseReal(text, 0.0, maxStorageGbLimit, value)) {
+        return false;
+    }
+    options.archiveMinFreeGb = value;
+    return true;
+}
+
 bool setArchiveKeepDays(AppOptions& options, const char* text) {
     std::int64_t value{0};
     if (!parseWhole(text, 1, maxKeepDays, value)) {
@@ -257,7 +275,7 @@ struct Flag {
     std::string_view path;
 };
 
-constexpr std::array<Flag, 25> flags{{
+constexpr std::array<Flag, 27> flags{{
     {"--model", setModel, "path of the .rknn model (required unless the config file gives it)",
      JsonKind::String, "model"},
     {"--config", setConfig, "config file, default <app folder>/resource/config/app_config.json",
@@ -288,6 +306,9 @@ constexpr std::array<Flag, 25> flags{{
      JsonKind::Number, "violation.max_storage_gb"},
     {"--keep-days", setKeepDays, "days a violation is kept, 1 to 3650", JsonKind::Number,
      "violation.keep_days"},
+    {"--violation-min-free-gb", setMinFreeGb,
+     "free gigabytes the violation volume keeps, 0 to 100000", JsonKind::Number,
+     "violation.min_free_gb"},
     {"--archive", setArchive, "archive the video in segment files, true or false",
      JsonKind::Boolean, "archive.enabled"},
     {"--archive-output-dir", setArchiveOutputDir, "folder of the archive", JsonKind::String,
@@ -298,6 +319,9 @@ constexpr std::array<Flag, 25> flags{{
      JsonKind::Number, "archive.max_storage_gb"},
     {"--archive-keep-days", setArchiveKeepDays, "days an archive file is kept, 1 to 3650",
      JsonKind::Number, "archive.keep_days"},
+    {"--archive-min-free-gb", setArchiveMinFreeGb,
+     "free gigabytes the archive volume keeps, 0 to 100000", JsonKind::Number,
+     "archive.min_free_gb"},
     {"--stream", setStream, "stream the video live over RTSP, true or false", JsonKind::Boolean,
      "stream.enabled"},
     {"--stream-url", setStreamUrl, "RTSP address the stream is published to", JsonKind::String,
