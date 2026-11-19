@@ -21,6 +21,9 @@ struct BranchState;
 struct BranchTimes {
     double copy{0.0};
     double draw{0.0};
+    /** The RGA scaling of the picture for the scaled streams, summed over them. */
+    double scale{0.0};
+    /** The encoding of every stream, summed. */
     double encode{0.0};
     /** The RGA copies of the images of a violation, 0 when there was none. */
     double evidence{0.0};
@@ -60,8 +63,11 @@ struct BranchCounts {
 class OutputBranch {
 public:
     /**
-     * @brief Allocates the snapshot slot, the drawing, the video encoder, and the evidence hub.
-     * @param options The command line: video bitrate, clip times, minimum confidence.
+     * @brief Allocates the snapshot slot, the drawing, one video encoder for each stream that
+     *        planStreams() gives (with its scaler when it is smaller than the frame), and the
+     *        evidence hub.
+     * @param options The command line: video bitrate, clip times, minimum confidence, the heights
+     *        of the scaled outputs.
      * @param format The camera frame format.
      * @param sinks Where every encoded packet is pushed for the recording and the stream.
      * @param log Logger that the object keeps for the rest of its life.
@@ -81,6 +87,11 @@ public:
 
     /** @brief Bytes per line of the upright frame. */
     int imageStride() const noexcept;
+
+    /** @brief Size and bytes per line of the images of a violation: the upright frame, or the
+     *         smaller size when --violation-image-downscale is on. */
+    ImageSize evidenceImageSize() const noexcept;
+    int evidenceImageStride() const noexcept;
 
     /** @brief The evidence slots, clip recorder and queue, for the evidence thread. Owned by the
      *         branch. Null when the violations are not stored (--violation false). */

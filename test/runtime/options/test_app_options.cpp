@@ -43,6 +43,11 @@ constexpr double customArchiveMinFree{4.5};
 constexpr double customSegment{30.0};
 constexpr double customArchiveStorage{2.5};
 constexpr int customArchiveDays{3};
+constexpr int customImageH{540};
+constexpr int customImageHalf{600};
+constexpr int customClipH{480};
+constexpr int customArchiveH{360};
+constexpr int customSessionH{720};
 constexpr double customPre{2.5};
 constexpr double customPost{7.0};
 constexpr double fileClipPost{8.0};
@@ -114,6 +119,14 @@ void checkDefaults(Check& check) {
                  "default clip times");
     check.expect(options.violation && options.violationImage && options.violationClip,
                  "default violations: stored with images and clip");
+    check.expect(!options.violationImageDownscale && !options.violationClipDownscale &&
+                     !options.archiveDownscale && !options.sessionDownscale,
+                 "default: nothing is scaled down");
+    check.expect(options.violationImageHeight == defaultImageDownscaleHeight &&
+                     options.violationClipHeight == defaultVideoDownscaleHeight &&
+                     options.archiveHeight == defaultVideoDownscaleHeight &&
+                     options.sessionHeight == defaultVideoDownscaleHeight,
+                 "default heights: 720 for images, 1080 for video");
     check.expect(near(options.maxStorageGb, defaultMaxStorageGb) &&
                      options.keepDays == defaultKeepDays,
                  "default retention");
@@ -153,6 +166,22 @@ void checkEveryFlag(Check& check) {
                                     "false",
                                     "--violation-clip",
                                     "false",
+                                    "--violation-image-downscale",
+                                    "true",
+                                    "--violation-image-downscale-height",
+                                    "540",
+                                    "--violation-clip-downscale",
+                                    "true",
+                                    "--violation-clip-downscale-height",
+                                    "480",
+                                    "--archive-downscale",
+                                    "true",
+                                    "--archive-downscale-height",
+                                    "360",
+                                    "--session-downscale",
+                                    "true",
+                                    "--session-downscale-height",
+                                    "720",
                                     "--video-kbps",
                                     "8000",
                                     "--jpeg-quality",
@@ -208,6 +237,11 @@ void checkEveryFlag(Check& check) {
     check.expect(options.outputDir == "/tmp/out", "--violation-output-dir");
     check.expect(!options.violation && !options.violationImage && !options.violationClip,
                  "--violation, --violation-image and --violation-clip");
+    check.expect(options.violationImageDownscale && options.violationImageHeight == customImageH &&
+                     options.violationClipDownscale && options.violationClipHeight == customClipH &&
+                     options.archiveDownscale && options.archiveHeight == customArchiveH &&
+                     options.sessionDownscale && options.sessionHeight == customSessionH,
+                 "the four downscale switches and heights");
     check.expect(options.videoKbps == customKbps, "--video-kbps");
     check.expect(options.jpegQuality == customQuality, "--jpeg-quality");
     check.expect(near(options.holdSeconds, customHold), "--hold-seconds");
@@ -318,6 +352,25 @@ std::vector<Case> cases() {
         {{"--model", "m", "--violation-image", "yes"}, invalid, "--violation-image yes"},
         {{"--model", "m", "--violation-clip", "false"}, run, "--violation-clip false"},
         {{"--model", "m", "--violation-clip", ""}, invalid, "--violation-clip empty"},
+        {{"--model", "m", "--archive-downscale", "true"}, run, "--archive-downscale true"},
+        {{"--model", "m", "--archive-downscale", "1"}, invalid, "--archive-downscale 1"},
+        {{"--model", "m", "--session-downscale", "TRUE"}, invalid, "--session-downscale capitals"},
+        {{"--model", "m", "--violation-image-downscale", ""}, invalid, "image downscale empty"},
+        {{"--model", "m", "--violation-clip-downscale", "yes"}, invalid, "clip downscale yes"},
+        {{"--model", "m", "--archive-downscale-height", "1080"}, run, "a height of 1080"},
+        {{"--model", "m", "--archive-downscale-height", "240"}, run, "the lowest height"},
+        {{"--model", "m", "--archive-downscale-height", "238"}, invalid, "a height below 240"},
+        {{"--model", "m", "--archive-downscale-height", "0"}, invalid, "height 0"},
+        {{"--model", "m", "--archive-downscale-height", "-720"}, invalid, "a negative height"},
+        {{"--model", "m", "--archive-downscale-height", "721"}, invalid, "an odd height"},
+        {{"--model", "m", "--archive-downscale-height", "16384"}, run, "the largest height"},
+        {{"--model", "m", "--archive-downscale-height", "16386"}, invalid, "a height too large"},
+        {{"--model", "m", "--session-downscale-height", "720.5"}, invalid, "a real height"},
+        {{"--model", "m", "--session-downscale-height", "720p"}, invalid, "a height with text"},
+        {{"--model", "m", "--violation-image-downscale-height", "720"}, run, "image height 720"},
+        {{"--model", "m", "--violation-image-downscale-height", "100"}, invalid, "image too low"},
+        {{"--model", "m", "--violation-clip-downscale-height", "1080"}, run, "clip height 1080"},
+        {{"--model", "m", "--violation-clip-downscale-height", ""}, invalid, "clip height empty"},
         {{"--model", "m", "--max-storage-gb", "0"}, invalid, "storage 0"},
         {{"--model", "m", "--max-storage-gb", "-1"}, invalid, "negative storage"},
         {{"--model", "m", "--max-storage-gb", "100001"}, invalid, "storage above the limit"},
@@ -424,8 +477,13 @@ constexpr const char* everyKeyConfig{R"({
     "max_storage_gb": 1.5,
     "keep_days": 7,
     "min_free_gb": 1,
-    "image": {"enabled": false},
-    "clip": {"enabled": false, "pre_seconds": 2.5, "post_seconds": 7}
+    "image": {"enabled": false, "downscale": {"enabled": true, "height": 540}},
+    "clip": {
+      "enabled": false,
+      "pre_seconds": 2.5,
+      "post_seconds": 7,
+      "downscale": {"enabled": true, "height": 480}
+    }
   },
   "archive": {
     "enabled": true,
@@ -433,9 +491,15 @@ constexpr const char* everyKeyConfig{R"({
     "segment_seconds": 30,
     "max_storage_gb": 2.5,
     "keep_days": 3,
-    "min_free_gb": 4.5
+    "min_free_gb": 4.5,
+    "downscale": {"enabled": true, "height": 360}
   },
-  "session": {"enabled": true, "output_dir": "/tmp/sess", "min_free_gb": 0.5},
+  "session": {
+    "enabled": true,
+    "output_dir": "/tmp/sess",
+    "min_free_gb": 0.5,
+    "downscale": {"enabled": true, "height": 720}
+  },
   "stream": {"enabled": true, "url": "rtsp://10.0.0.2:8554/cam"},
   "run": {"frames": 300, "stats_seconds": 5}
 })"};
@@ -461,6 +525,11 @@ void checkConfigEveryKey(Check& check, const fs::path& root) {
                  "config: encode and rule");
     check.expect(!options.violation && !options.violationImage && !options.violationClip,
                  "config: violation.enabled, violation.image and violation.clip");
+    check.expect(options.violationImageDownscale && options.violationImageHeight == customImageH &&
+                     options.violationClipDownscale && options.violationClipHeight == customClipH &&
+                     options.archiveDownscale && options.archiveHeight == customArchiveH &&
+                     options.sessionDownscale && options.sessionHeight == customSessionH,
+                 "config: the downscale groups of image, clip, archive and session");
     check.expect(options.outputDir == "/tmp/out" && near(options.clipPreSeconds, customPre) &&
                      near(options.clipPostSeconds, customPost) &&
                      near(options.maxStorageGb, customStorage) && options.keepDays == customDays &&
@@ -536,6 +605,14 @@ void checkConfigOrder(Check& check, const fs::path& root) {
     check.expect(!parseIn(root.string(), {}).options.violationClip, "clip false from the file");
     check.expect(parseIn(root.string(), {"--violation-clip", "true"}).options.violationClip,
                  "--violation-clip true turns on what the file left off");
+    writeDefaultConfig(root,
+                       R"({"model": "m", "violation": {"image": {"downscale": {"height": 600}}}})");
+    check.expect(parseIn(root.string(), {}).options.violationImageHeight == customImageHalf &&
+                     !parseIn(root.string(), {}).options.violationImageDownscale,
+                 "a height from the file does not turn the downscale on");
+    check.expect(parseIn(root.string(), {"--violation-image-downscale", "true"})
+                     .options.violationImageDownscale,
+                 "--violation-image-downscale true turns it on");
     writeDefaultConfig(root, R"({"model": "m", "violation": {"clip": {"post_seconds": 8}}})");
     check.expect(near(parseIn(root.string(), {}).options.clipPostSeconds, fileClipPost),
                  "a nested key sets its option");
@@ -642,7 +719,20 @@ void checkConfigRefusals(Check& check, const fs::path& root) {
         {R"({"model": "m", "violation": {"clip": {"pre_seconds": 0, "post_seconds": 0}}})",
          "a clip that is on with no time"},
         {R"({"model": "m", "violation": {"clip": {"pre_seconds": 61}}})", "clip pre above limit"},
-        {R"({"model": "m", "violation": {"clip": {"a": {"b": 1}}}})", "a third level of groups"},
+        {R"({"model": "m", "violation": {"clip": {"a": {"b": {"c": 1}}}}})", "a fourth level"},
+        {R"({"model": "m", "violation": {"clip": {"downscale": {"height": 100}}}})", "height 100"},
+        {R"({"model": "m", "violation": {"clip": {"downscale": {"height": 721}}}})", "odd height"},
+        {R"({"model": "m", "violation": {"clip": {"downscale": {"enabled": 1}}}})", "enabled 1"},
+        {R"({"model": "m", "violation": {"clip": {"downscale": {"size": 720}}}})", "unknown key"},
+        {R"({"model": "m", "violation": {"clip": {"downscale": 720}}})", "downscale as a number"},
+        {R"({"model": "m", "violation": {"image": {"downscale": {"height": "720"}}}})", "text"},
+        {R"({"model": "m", "violation": {"downscale": {"enabled": true}}})", "downscale outside"},
+        {R"({"model": "m", "archive": {"downscale": {"enabled": "true"}}})", "text for enabled"},
+        {R"({"model": "m", "archive": {"downscale": {"height": 0}}})", "archive height 0"},
+        {R"({"model": "m", "session": {"downscale": {"height": 16386}}})", "session too high"},
+        {R"({"model": "m", "session": {"downscale": {"bogus": 1}}})", "session unknown key"},
+        {R"({"model": "m", "stream": {"downscale": {"enabled": true}}})", "stream has none"},
+        {R"({"model": "m", "downscale": {"enabled": true}})", "a top downscale group"},
         {R"({"model": "m", "clip": {"enabled": true}})", "the clip group outside violation"},
         {R"({"model": "m", "archive": {"dir": "/x"}})", "the old archive dir key"},
         {R"({"model": "m", "record": {"enabled": true}})", "the old record group"},

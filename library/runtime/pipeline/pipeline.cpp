@@ -307,8 +307,8 @@ std::optional<Parts> makeParts(const AppOptions& options, const Logger& log) {
     }
     std::optional<EvidenceWorker> evidence;
     if (options.violation) {
-        evidence = EvidenceWorker::create(options, output->imageSize(), output->imageStride(),
-                                          format.fullRange, log);
+        evidence = EvidenceWorker::create(options, output->imageSize(), output->evidenceImageSize(),
+                                          output->evidenceImageStride(), format.fullRange, log);
         if (!evidence) {
             return std::nullopt;
         }
@@ -618,9 +618,11 @@ void npuLoop(PipelineState& state) {
 // ---- Writer thread ----
 
 struct WriterStats {
-    WriterStats() : copy{statsCapacity}, draw{statsCapacity}, encode{statsCapacity} {}
+    WriterStats()
+        : copy{statsCapacity}, draw{statsCapacity}, scale{statsCapacity}, encode{statsCapacity} {}
     StageStats copy;
     StageStats draw;
+    StageStats scale;
     StageStats encode;
     double copyLast{0.0};
 };
@@ -628,17 +630,20 @@ struct WriterStats {
 void reportWriter(PipelineState& state, WriterStats& stats) {
     const Pair copy{readStats(stats.copy)};
     const Pair draw{readStats(stats.draw)};
+    const Pair scale{readStats(stats.scale)};
     const Pair encode{readStats(stats.encode)};
     const BranchCounts counts{state.output.counts()};
     state.log.info(
         "writer: ms median/max copy ", Fixed{copy.median, timePrecision}, "/",
         Fixed{copy.maximum, timePrecision}, ", draw ", Fixed{draw.median, timePrecision}, "/",
-        Fixed{draw.maximum, timePrecision}, ", encode ", Fixed{encode.median, timePrecision}, "/",
+        Fixed{draw.maximum, timePrecision}, ", scale ", Fixed{scale.median, timePrecision}, "/",
+        Fixed{scale.maximum, timePrecision}, ", encode ", Fixed{encode.median, timePrecision}, "/",
         Fixed{encode.maximum, timePrecision}, ", frames ", counts.frames, ", video dropped ",
         state.counters.droppedOutput.load(), ", evidence dropped ", counts.evidenceDropped,
         ", clips skipped ", counts.clipsSkipped, ", boxes dropped ", counts.boxesDropped);
     stats.copy.clear();
     stats.draw.clear();
+    stats.scale.clear();
     stats.encode.clear();
 }
 
@@ -657,13 +662,15 @@ bool writeFrame(PipelineState& state, const OutputJob& job, WriterStats& stats) 
         state.output.encode(state.frames.at(job.dataSlot), job.captureSeconds, times)};
     state.frames.at(job.dataSlot).busy.store(false, std::memory_order_release);
     stats.draw.add(times.draw);
+    stats.scale.add(times.scale);
     stats.encode.add(times.encode);
     const double total{millisecondsBetween(begin, Clock::now())};
     if (total > slowFrameMs) {
         state.log.warn("slow writer frame ", Fixed{total, timePrecision}, " ms: copy ",
                        Fixed{stats.copyLast, timePrecision}, ", evidence ",
                        Fixed{times.evidence, timePrecision}, ", draw ",
-                       Fixed{times.draw, timePrecision}, ", encode ",
+                       Fixed{times.draw, timePrecision}, ", scale ",
+                       Fixed{times.scale, timePrecision}, ", encode ",
                        Fixed{times.encode, timePrecision}, ", events ",
                        state.frames.at(job.dataSlot).events.size());
     }

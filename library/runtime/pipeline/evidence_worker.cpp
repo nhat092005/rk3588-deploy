@@ -26,10 +26,10 @@ struct Remembered {
 } // namespace
 
 struct EvidenceWorker::State {
-    State(Logger logger, ImageSize imageSize, ViolationStore violationStore,
+    State(Logger logger, ImageSize imageSize, float scale, ViolationStore violationStore,
           std::optional<JpegEncoder> first, std::optional<JpegEncoder> second,
           ViolationRetention limits)
-        : log{logger}, size{imageSize}, store{std::move(violationStore)},
+        : log{logger}, size{imageSize}, boxScale{scale}, store{std::move(violationStore)},
           originalJpeg{std::move(first)}, markedJpeg{std::move(second)},
           retention{std::move(limits)} {}
 
@@ -42,7 +42,10 @@ struct EvidenceWorker::State {
     const std::string* find(std::int64_t eventId) const;
 
     Logger log;
+    // The size that the saved event refers to (the images, or the frame without images) and the
+    // factor that takes a box of the frame to it.
     ImageSize size;
+    float boxScale;
     ViolationStore store;
     // Empty when the violation images are off.
     std::optional<JpegEncoder> originalJpeg;
@@ -127,6 +130,10 @@ void EvidenceWorker::State::saveImages(EvidenceSlot& slot) {
         }
         ViolationRecord record;
         record.event = slot.events.at(index);
+        record.event.left *= boxScale;
+        record.event.top *= boxScale;
+        record.event.right *= boxScale;
+        record.event.bottom *= boxScale;
         record.wallTime = slot.wallTime;
         record.imageWidth = size.width;
         record.imageHeight = size.height;
@@ -172,9 +179,12 @@ void EvidenceWorker::State::saveClip(EvidenceHub& hub, const EvidenceJob& job) {
     }
 }
 
-std::optional<EvidenceWorker> EvidenceWorker::create(const AppOptions& options, ImageSize size,
-                                                     int stride, bool fullRange,
+std::optional<EvidenceWorker> EvidenceWorker::create(const AppOptions& options, ImageSize frame,
+                                                     ImageSize image, int stride, bool fullRange,
                                                      const Logger& log) {
+    // The images are the size the event refers to; without them, the frame.
+    const ImageSize size{options.violationImage ? image : frame};
+    const float boxScale{static_cast<float>(size.height) / static_cast<float>(frame.height)};
     std::optional<ViolationStore> store{
         ViolationStore::create(StoreConfig{options.outputDir, defaultFileMode}, log)};
     const JpegConfig config{size.width,  size.height, stride,
@@ -193,7 +203,7 @@ std::optional<EvidenceWorker> EvidenceWorker::create(const AppOptions& options, 
     if (!store || !retention || (options.violationImage && (!first || !second))) {
         return std::nullopt;
     }
-    auto state{std::make_unique<State>(log, size, std::move(*store), std::move(first),
+    auto state{std::make_unique<State>(log, size, boxScale, std::move(*store), std::move(first),
                                        std::move(second), std::move(*retention))};
     state->housekeeping(false);
     return std::optional<EvidenceWorker>{EvidenceWorker{std::move(state)}};

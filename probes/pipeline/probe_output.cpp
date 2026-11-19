@@ -236,8 +236,9 @@ bool run(const Camera& camera, const StopSignal& stop, const Options& options, c
     if (!output) {
         return false;
     }
-    std::optional<EvidenceWorker> evidence{EvidenceWorker::create(
-        app, output->imageSize(), output->imageStride(), camera.format().fullRange, log)};
+    std::optional<EvidenceWorker> evidence{
+        EvidenceWorker::create(app, output->imageSize(), output->evidenceImageSize(),
+                               output->evidenceImageStride(), camera.format().fullRange, log)};
     std::vector<RgaImage> cameraImages;
     for (std::size_t index{0}; index < camera.bufferCount(); ++index) {
         std::optional<RgaImage> image{RgaImage::import(camera.planeBuffer(index, 0), log)};

@@ -9,6 +9,7 @@ set(BOARD_ONLY_TESTS
     test_jpeg_encoder
     test_video_encoder
     test_app_options
+    test_output_plan
     test_npu_infer
 )
 

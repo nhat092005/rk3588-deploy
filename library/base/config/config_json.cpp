@@ -1,7 +1,12 @@
 #include "config_json.h"
 
+#include <algorithm>
+#include <cstddef>
+
 namespace {
 constexpr unsigned char firstPrintable{0x20};
+// The name of a group at the third level has two dots: `a.b.c`.
+constexpr std::ptrdiff_t maxGroupDots{2};
 
 bool isSpace(char letter) {
     return letter == ' ' || letter == '\t' || letter == '\n' || letter == '\r';
@@ -89,11 +94,11 @@ private:
         }
     }
 
-    // A group named by `entry`, inside the object `parent`: its entry, then its members. Two levels
-    // at most: a group of a group, but not a third one.
+    // A group named by `entry`, inside the object `parent`: its entry, then its members. Three
+    // levels at most (`a.b.c`): a fourth one is refused.
     bool readGroup(JsonEntry entry, const std::string& parent) {
-        if (parent.find('.') != std::string::npos) {
-            return refuse("a group inside a group of a group");
+        if (std::count(parent.begin(), parent.end(), '.') >= maxGroupDots) {
+            return refuse("a group nested more than three levels deep");
         }
         ++at;
         entry.kind = JsonKind::Object;

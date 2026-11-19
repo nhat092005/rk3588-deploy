@@ -138,11 +138,15 @@ struct SnapshotConfig {
     int sourceStride{0};
     /** Rotation of the camera image. */
     Rotation rotation{Rotation::None};
+    /** Size of the copy in pixels, both even, or 0 x 0 for the size of the rotated source. A
+     *  smaller size scales the picture down in the same RGA call (keep the proportions). */
+    ImageSize target{};
 };
 
 /**
  * @brief Copies an NV12 camera frame into a buffer of its own, rotated upright, on the RGA: one
- *        call, no CPU work. The camera buffer can go back to the camera as soon as run() returns.
+ *        call, no CPU work. With a target size it scales as well. The camera buffer can go back to
+ * the camera as soon as run() returns.
  *
  * The copy is NV12: the luma plane is `stride()` bytes per line and `size().height` lines, the
  * chroma plane follows it. The RGA wants the stride to be a multiple of 16, so a width that is not
@@ -155,11 +159,13 @@ public:
      * @param config Source geometry and rotation.
      * @param log Logger that the object keeps for the rest of its life.
      * @return The copier, or empty when a size is not above 0, the stride is shorter than the
-     *         width or the width or height is odd, which is logged.
+     *         width, the width or height is odd, or only one side of the target is above 0 (or it
+     *         is odd), which is logged.
      */
     static std::optional<RgaSnapshot> create(const SnapshotConfig& config, const Logger& log);
 
-    /** @brief Size of the copy in pixels: the source size, swapped for Rotate90 and Rotate270. */
+    /** @brief Size of the copy in pixels: the target size, or the source size swapped for Rotate90
+     *         and Rotate270. */
     ImageSize size() const noexcept {
         return copySize;
     }

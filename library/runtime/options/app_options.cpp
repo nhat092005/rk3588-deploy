@@ -155,6 +155,49 @@ bool setViolationClip(AppOptions& options, const char* text) {
     return parseSwitch(text, options.violationClip);
 }
 
+// A height for a downscaled output: even, from minDownscaleHeight to the largest camera side.
+// Whether it is below the camera is checked when the camera is known.
+bool parseDownscaleHeight(const char* text, int& height) {
+    std::int64_t value{0};
+    if (!parseWhole(text, minDownscaleHeight, maxCameraSide, value) || value % 2 != 0) {
+        return false;
+    }
+    height = static_cast<int>(value);
+    return true;
+}
+
+bool setViolationImageDownscale(AppOptions& options, const char* text) {
+    return parseSwitch(text, options.violationImageDownscale);
+}
+
+bool setViolationImageHeight(AppOptions& options, const char* text) {
+    return parseDownscaleHeight(text, options.violationImageHeight);
+}
+
+bool setViolationClipDownscale(AppOptions& options, const char* text) {
+    return parseSwitch(text, options.violationClipDownscale);
+}
+
+bool setViolationClipHeight(AppOptions& options, const char* text) {
+    return parseDownscaleHeight(text, options.violationClipHeight);
+}
+
+bool setArchiveDownscale(AppOptions& options, const char* text) {
+    return parseSwitch(text, options.archiveDownscale);
+}
+
+bool setArchiveHeight(AppOptions& options, const char* text) {
+    return parseDownscaleHeight(text, options.archiveHeight);
+}
+
+bool setSessionDownscale(AppOptions& options, const char* text) {
+    return parseSwitch(text, options.sessionDownscale);
+}
+
+bool setSessionHeight(AppOptions& options, const char* text) {
+    return parseDownscaleHeight(text, options.sessionHeight);
+}
+
 bool setClipPreSeconds(AppOptions& options, const char* text) {
     double value{0.0};
     if (!parseReal(text, 0.0, maxClipSeconds, value)) {
@@ -320,7 +363,7 @@ struct Flag {
     std::string_view path;
 };
 
-constexpr std::array<Flag, 33> flags{{
+constexpr std::array<Flag, 41> flags{{
     {"--model", setModel, "path of the .rknn model (required unless the config file gives it)",
      JsonKind::String, "model"},
     {"--config", setConfig, "config file, default <app folder>/resource/config/app_config.json",
@@ -349,6 +392,18 @@ constexpr std::array<Flag, 33> flags{{
      JsonKind::Boolean, "violation.image.enabled"},
     {"--violation-clip", setViolationClip, "save the video clip of a violation, true or false",
      JsonKind::Boolean, "violation.clip.enabled"},
+    {"--violation-image-downscale", setViolationImageDownscale,
+     "scale the violation images down, true or false", JsonKind::Boolean,
+     "violation.image.downscale.enabled"},
+    {"--violation-image-downscale-height", setViolationImageHeight,
+     "height of the scaled violation images, even, 240 to 16384", JsonKind::Number,
+     "violation.image.downscale.height"},
+    {"--violation-clip-downscale", setViolationClipDownscale,
+     "scale the violation clips down, true or false", JsonKind::Boolean,
+     "violation.clip.downscale.enabled"},
+    {"--violation-clip-downscale-height", setViolationClipHeight,
+     "height of the scaled violation clips, even, 240 to 16384", JsonKind::Number,
+     "violation.clip.downscale.height"},
     {"--violation-clip-pre-seconds", setClipPreSeconds,
      "seconds of video kept before a violation, 0 to 60", JsonKind::Number,
      "violation.clip.pre_seconds"},
@@ -364,6 +419,11 @@ constexpr std::array<Flag, 33> flags{{
      "violation.min_free_gb"},
     {"--archive", setArchive, "archive the video in segment files, true or false",
      JsonKind::Boolean, "archive.enabled"},
+    {"--archive-downscale", setArchiveDownscale, "scale the archive video down, true or false",
+     JsonKind::Boolean, "archive.downscale.enabled"},
+    {"--archive-downscale-height", setArchiveHeight,
+     "height of the scaled archive video, even, 240 to 16384", JsonKind::Number,
+     "archive.downscale.height"},
     {"--archive-output-dir", setArchiveOutputDir, "folder of the archive", JsonKind::String,
      "archive.output_dir"},
     {"--archive-segment-seconds", setArchiveSegmentSeconds, "seconds of video in an archive file",
@@ -377,6 +437,11 @@ constexpr std::array<Flag, 33> flags{{
      "archive.min_free_gb"},
     {"--session", setSession, "write the video of the whole run to one file, true or false",
      JsonKind::Boolean, "session.enabled"},
+    {"--session-downscale", setSessionDownscale, "scale the session video down, true or false",
+     JsonKind::Boolean, "session.downscale.enabled"},
+    {"--session-downscale-height", setSessionHeight,
+     "height of the scaled session video, even, 240 to 16384", JsonKind::Number,
+     "session.downscale.height"},
     {"--session-output-dir", setSessionOutputDir, "folder of the session video", JsonKind::String,
      "session.output_dir"},
     {"--session-min-free-gb", setSessionMinFreeGb,

@@ -98,6 +98,8 @@ Two flags save the finished H.265 video. Both are off by default and can run tog
 - `<HHMMSS>` is the start time. Runs of the same day share the folder. A name taken in the same second gets `_2`.
 - The folder must exist and be writable. For `--session`, a bad folder or a volume already below `min_free_gb` stops the app with exit code 1 before the camera opens.
 - Play a file with `ffplay`. Join segments: `cat <day>/*.h265 > day.h265`.
+- `downscale` (in the group of the output, see `resource/config/README.md`) writes smaller video: `--archive-downscale true --archive-downscale-height 1080`. The target bitrate follows the pixels, so a 1080 stream aims at a quarter of the 4K one.
+- The low heap of the board (about 75 MB usable) is nearly full with the violation images at the camera size, so a scaled video output also needs `--violation-image-downscale true` or `--violation-image false`. The app says so and exits with code 1 when it runs out.
 - 20 Mbit/s is about 9 GB an hour. `/data` on the board is the 29 GB system card, so for a long run mount a bigger disk and set `--session-output-dir`.
 
 ## Pipeline
