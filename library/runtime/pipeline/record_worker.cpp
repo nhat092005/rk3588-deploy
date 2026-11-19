@@ -77,12 +77,12 @@ std::optional<RecordWorker> RecordWorker::create(const AppOptions& options, cons
     std::unique_ptr<PacketQueue> queue{
         PacketQueue::create(ringBytes, maxQueuedPackets, defaultVideoCapacity)};
     std::optional<SegmentWriter> writer{SegmentWriter::create(
-        SegmentConfig{options.recordDir, options.recordSegmentSeconds, defaultFileMode}, log)};
+        SegmentConfig{options.archiveDir, options.archiveSegmentSeconds, defaultFileMode}, log)};
     std::optional<RecordingRetention> retention{RecordingRetention::create(
         RecordingRetentionConfig{
-            options.recordDir,
-            static_cast<std::uint64_t>(options.recordMaxStorageGb * bytesPerGigabyte),
-            options.recordKeepDays, defaultRecordMinFreeBytes},
+            options.archiveDir,
+            static_cast<std::uint64_t>(options.archiveMaxStorageGb * bytesPerGigabyte),
+            options.archiveKeepDays, defaultArchiveMinFreeBytes},
         log)};
     if (!queue || !writer || !retention) {
         return std::nullopt;

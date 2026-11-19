@@ -70,13 +70,13 @@ struct AppOptions {
      *  violation this many days. The oldest go first. */
     double maxStorageGb{defaultMaxStorageGb};
     int keepDays{defaultKeepDays};
-    /** Continuous recording of the video, off unless --record true is given: the segments go to
-     *  recordDir, recordSegmentSeconds long, within their own size and age limits. */
-    bool record{false};
-    std::string_view recordDir{defaultRecordRoot};
-    double recordSegmentSeconds{defaultSegmentSeconds};
-    double recordMaxStorageGb{defaultRecordMaxStorageGb};
-    int recordKeepDays{defaultRecordKeepDays};
+    /** Archive of the video in segment files, off unless --archive true is given: the segments go
+     * to archiveDir, archiveSegmentSeconds long, within their own size and age limits. */
+    bool archive{false};
+    std::string_view archiveDir{defaultArchiveRoot};
+    double archiveSegmentSeconds{defaultSegmentSeconds};
+    double archiveMaxStorageGb{defaultArchiveMaxStorageGb};
+    int archiveKeepDays{defaultArchiveKeepDays};
     /** Live stream of the video, off unless --stream true is given: ffmpeg publishes it to
      *  streamUrl (an RTSP server such as MediaMTX must listen there). */
     bool stream{false};
@@ -126,15 +126,15 @@ struct ParseResult {
  * value), `--config <file>` to read another config file (it must exist), and `--help`. The flags:
  * --model, --node, --width, --height, --rotation, --video-kbps, --jpeg-quality, --hold-seconds,
  * --gap-seconds, --min-confidence, --violation-output-dir, --clip-pre-seconds,
- * --clip-post-seconds, --max-storage-gb, --keep-days, --record (true or false),
- * --record-output-dir, --record-segment-seconds, --record-max-storage-gb, --record-keep-days,
+ * --clip-post-seconds, --max-storage-gb, --keep-days, --archive (true or false),
+ * --archive-output-dir, --archive-segment-seconds, --archive-max-storage-gb, --archive-keep-days,
  * --stream (true or false), --stream-url, --frames, --stats-seconds.
  *
  * The config file is one JSON object: `model` at the top and the other options in groups
- * (`camera`, `encode`, `rule`, `violation`, `record`, `stream`, `run`), for example
- * `{"model": "m.rknn", "camera": {"width": 3840}, "record": {"enabled": true}}`. Every key is
+ * (`camera`, `encode`, `rule`, `violation`, `archive`, `stream`, `run`), for example
+ * `{"model": "m.rknn", "camera": {"width": 3840}, "archive": {"enabled": true}}`. Every key is
  * optional. A key has the kind of value of its flag (`width` is a number, `node` a string,
- * `record.enabled` true or false) and the same range. The place of each key is in the table of
+ * `archive.enabled` true or false) and the same range. The place of each key is in the table of
  * flags in app_options.cpp.
  */
 ParseResult parseOptions(const std::vector<const char*>& args, std::string_view baseDir,

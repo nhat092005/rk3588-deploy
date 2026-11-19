@@ -4,7 +4,7 @@
 
 ```
 ./rk3588_deploy                              # the file only
-./rk3588_deploy --rotation 180 --record true # the file, two flags on top
+./rk3588_deploy --rotation 180 --archive true # the file, two flags on top
 ./rk3588_deploy --config other.json          # another file (it must exist)
 ```
 
@@ -15,7 +15,7 @@
 - A missing default file is fine, a broken one stops the app.
 - Every key is optional except `model`, which the file or `--model` must give.
 - An unknown key or group, a key in the wrong group, a wrong kind of value or a value out of range stops the app and names the key (`camera.width`).
-- Every flag takes a value, `--record` and `--stream` too (`--record false`), so a flag can turn off what the file turned on.
+- Every flag takes a value, `--archive` and `--stream` too (`--archive false`), so a flag can turn off what the file turned on.
 - `--config` and `--help` have no key. `--help` lists the flags.
 
 ## Keys
@@ -37,11 +37,11 @@
 | `violation.clip_post_seconds` | `--clip-post-seconds` | 5.0 | number, 0 to 60 (both 0: no clip) |
 | `violation.max_storage_gb` | `--max-storage-gb` | 4.0 | number, above 0 to 100000 |
 | `violation.keep_days` | `--keep-days` | 30 | number, 1 to 3650 |
-| `record.enabled` | `--record` | `false` | `true` or `false` |
-| `record.output_dir` | `--record-output-dir` | `/data/records` | string |
-| `record.segment_seconds` | `--record-segment-seconds` | 60 | number, above 0 to 3600 |
-| `record.max_storage_gb` | `--record-max-storage-gb` | 5.0 | number, above 0 to 100000 |
-| `record.keep_days` | `--record-keep-days` | 7 | number, 1 to 3650 |
+| `archive.enabled` | `--archive` | `false` | `true` or `false` |
+| `archive.output_dir` | `--archive-output-dir` | `/data/archive` | string |
+| `archive.segment_seconds` | `--archive-segment-seconds` | 60 | number, above 0 to 3600 |
+| `archive.max_storage_gb` | `--archive-max-storage-gb` | 5.0 | number, above 0 to 100000 |
+| `archive.keep_days` | `--archive-keep-days` | 7 | number, 1 to 3650 |
 | `stream.enabled` | `--stream` | `false` | `true` or `false` |
 | `stream.url` | `--stream-url` | `rtsp://127.0.0.1:8554/live` | string, `rtsp://host[:port]/path` |
 | `run.frames` | `--frames` | 0 | number, 0 to 10^12 (0: no limit) |

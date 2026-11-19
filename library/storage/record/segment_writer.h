@@ -14,14 +14,14 @@
 #include "packet_queue.h"
 #include "violation_store.h"
 
-/** @brief Defaults of the continuous recording. */
-constexpr std::string_view defaultRecordRoot{"/data/records"};
+/** @brief Defaults of the archive (continuous recording in segment files). */
+constexpr std::string_view defaultArchiveRoot{"/data/archive"};
 constexpr double defaultSegmentSeconds{60.0};
 
 /** @brief Where and how long. */
 struct SegmentConfig {
     /** Root directory. It must exist and be writable: the writer does not create it. */
-    std::string_view root{defaultRecordRoot};
+    std::string_view root{defaultArchiveRoot};
     /** Seconds of video in a segment, above 0. A segment ends at the first key frame at or after
      *  this long. */
     double segmentSeconds{defaultSegmentSeconds};

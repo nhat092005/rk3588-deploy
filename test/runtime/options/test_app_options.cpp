@@ -35,8 +35,8 @@ constexpr int repeatedWidth{640};
 constexpr double customStorage{1.5};
 constexpr int customDays{7};
 constexpr double customSegment{30.0};
-constexpr double customRecordStorage{2.5};
-constexpr int customRecordDays{3};
+constexpr double customArchiveStorage{2.5};
+constexpr int customArchiveDays{3};
 constexpr double customPre{2.5};
 constexpr double customPost{7.0};
 constexpr double realTolerance{1e-9};
@@ -108,11 +108,11 @@ void checkDefaults(Check& check) {
     check.expect(near(options.maxStorageGb, defaultMaxStorageGb) &&
                      options.keepDays == defaultKeepDays,
                  "default retention");
-    check.expect(!options.record && options.recordDir == defaultRecordRoot &&
-                     near(options.recordSegmentSeconds, defaultSegmentSeconds) &&
-                     near(options.recordMaxStorageGb, defaultRecordMaxStorageGb) &&
-                     options.recordKeepDays == defaultRecordKeepDays,
-                 "default recording: off, /data/records, 60 s, 5 GB, 7 days");
+    check.expect(!options.archive && options.archiveDir == defaultArchiveRoot &&
+                     near(options.archiveSegmentSeconds, defaultSegmentSeconds) &&
+                     near(options.archiveMaxStorageGb, defaultArchiveMaxStorageGb) &&
+                     options.archiveKeepDays == defaultArchiveKeepDays,
+                 "default archive: off, /data/archive, 60 s, 5 GB, 7 days");
     check.expect(!options.stream && options.streamUrl == defaultStreamUrl,
                  "default stream: off, rtsp://127.0.0.1:8554/live");
     check.expect(options.frames == 0, "default: no frame limit");
@@ -150,15 +150,15 @@ void checkEveryFlag(Check& check) {
                                     "1.5",
                                     "--keep-days",
                                     "7",
-                                    "--record",
+                                    "--archive",
                                     "true",
-                                    "--record-output-dir",
-                                    "/mnt/usb/records",
-                                    "--record-segment-seconds",
+                                    "--archive-output-dir",
+                                    "/mnt/usb/archive",
+                                    "--archive-segment-seconds",
                                     "30",
-                                    "--record-max-storage-gb",
+                                    "--archive-max-storage-gb",
                                     "2.5",
-                                    "--record-keep-days",
+                                    "--archive-keep-days",
                                     "3",
                                     "--stream",
                                     "true",
@@ -187,11 +187,11 @@ void checkEveryFlag(Check& check) {
                  "--clip-pre-seconds and --clip-post-seconds");
     check.expect(near(options.maxStorageGb, customStorage) && options.keepDays == customDays,
                  "--max-storage-gb and --keep-days");
-    check.expect(options.record && options.recordDir == "/mnt/usb/records" &&
-                     near(options.recordSegmentSeconds, customSegment) &&
-                     near(options.recordMaxStorageGb, customRecordStorage) &&
-                     options.recordKeepDays == customRecordDays,
-                 "--record and its flags");
+    check.expect(options.archive && options.archiveDir == "/mnt/usb/archive" &&
+                     near(options.archiveSegmentSeconds, customSegment) &&
+                     near(options.archiveMaxStorageGb, customArchiveStorage) &&
+                     options.archiveKeepDays == customArchiveDays,
+                 "--archive and its flags");
     check.expect(options.stream && options.streamUrl == "rtsp://10.0.0.2:8554/cam",
                  "--stream and --stream-url");
     check.expect(options.frames == customFrames, "--frames");
@@ -265,14 +265,14 @@ std::vector<Case> cases() {
         {{"--model", "m", "--keep-days", "3651"}, invalid, "keep above the limit"},
         {{"--model", "m", "--keep-days", "3650"}, run, "keep at the limit"},
         {{"--model", "m", "--keep-days", "1.5"}, invalid, "a fraction of a day"},
-        {{"--model", "m", "--record", "true"}, run, "--record true"},
-        {{"--model", "m", "--record", "false"}, run, "--record false"},
-        {{"--model", "m", "--record"}, invalid, "--record without a value"},
-        {{"--record", "--model", "m"}, invalid, "--record followed by a flag"},
-        {{"--model", "m", "--record", "1"}, invalid, "--record 1"},
-        {{"--model", "m", "--record", "yes"}, invalid, "--record yes"},
-        {{"--model", "m", "--record", "TRUE"}, invalid, "--record in capitals"},
-        {{"--model", "m", "--record", ""}, invalid, "--record with an empty value"},
+        {{"--model", "m", "--archive", "true"}, run, "--archive true"},
+        {{"--model", "m", "--archive", "false"}, run, "--archive false"},
+        {{"--model", "m", "--archive"}, invalid, "--archive without a value"},
+        {{"--archive", "--model", "m"}, invalid, "--archive followed by a flag"},
+        {{"--model", "m", "--archive", "1"}, invalid, "--archive 1"},
+        {{"--model", "m", "--archive", "yes"}, invalid, "--archive yes"},
+        {{"--model", "m", "--archive", "TRUE"}, invalid, "--archive in capitals"},
+        {{"--model", "m", "--archive", ""}, invalid, "--archive with an empty value"},
         {{"--model", "m", "--output-dir", "/x"}, invalid, "the old --output-dir"},
         {{"--model", "m", "--stream", "true"}, run, "--stream true"},
         {{"--model", "m", "--stream", "false"}, run, "--stream false"},
@@ -281,17 +281,18 @@ std::vector<Case> cases() {
         {{"--model", "m", "--stream", "TRUE"}, invalid, "--stream in capitals"},
         {{"--model", "m", "--stream-url", ""}, invalid, "an empty stream address"},
         {{"--model", "m", "--record-dir", "/x"}, invalid, "the old --record-dir"},
-        {{"--model", "m", "--record-output-dir", ""}, invalid, "an empty record folder"},
-        {{"--model", "m", "--record-segment-seconds", "0"}, invalid, "segment 0"},
-        {{"--model", "m", "--record-segment-seconds", "3601"}, invalid, "segment above the limit"},
-        {{"--model", "m", "--record-segment-seconds", "3600"}, run, "segment at the limit"},
-        {{"--model", "m", "--record-segment-seconds", "0.5"}, run, "half a second segment"},
-        {{"--model", "m", "--record-max-storage-gb", "0"}, invalid, "record storage 0"},
-        {{"--model", "m", "--record-max-storage-gb", "100001"},
+        {{"--model", "m", "--record", "true"}, invalid, "the old --record flag"},
+        {{"--model", "m", "--archive-output-dir", ""}, invalid, "an empty archive folder"},
+        {{"--model", "m", "--archive-segment-seconds", "0"}, invalid, "segment 0"},
+        {{"--model", "m", "--archive-segment-seconds", "3601"}, invalid, "segment above the limit"},
+        {{"--model", "m", "--archive-segment-seconds", "3600"}, run, "segment at the limit"},
+        {{"--model", "m", "--archive-segment-seconds", "0.5"}, run, "half a second segment"},
+        {{"--model", "m", "--archive-max-storage-gb", "0"}, invalid, "archive storage 0"},
+        {{"--model", "m", "--archive-max-storage-gb", "100001"},
          invalid,
-         "record storage above the limit"},
-        {{"--model", "m", "--record-keep-days", "0"}, invalid, "record keep 0 days"},
-        {{"--model", "m", "--record-keep-days", "3651"}, invalid, "record keep above the limit"},
+         "archive storage above the limit"},
+        {{"--model", "m", "--archive-keep-days", "0"}, invalid, "archive keep 0 days"},
+        {{"--model", "m", "--archive-keep-days", "3651"}, invalid, "archive keep above the limit"},
         {{"--model", "m", "--frames", "-1"}, invalid, "negative frame count"},
         {{"--model", "m", "--frames", "0"}, run, "frame count 0"},
         {{"--model", "m", "--stats-seconds", "0"}, invalid, "statistics period 0"},
@@ -345,7 +346,7 @@ constexpr const char* everyKeyConfig{R"({
     "max_storage_gb": 1.5,
     "keep_days": 7
   },
-  "record": {
+  "archive": {
     "enabled": true,
     "output_dir": "/tmp/rec",
     "segment_seconds": 30,
@@ -379,35 +380,35 @@ void checkConfigEveryKey(Check& check, const fs::path& root) {
                      near(options.clipPostSeconds, customPost) &&
                      near(options.maxStorageGb, customStorage) && options.keepDays == customDays,
                  "config: violation");
-    check.expect(options.record && options.recordDir == "/tmp/rec" &&
-                     near(options.recordSegmentSeconds, customSegment) &&
-                     near(options.recordMaxStorageGb, customRecordStorage) &&
-                     options.recordKeepDays == customRecordDays,
-                 "config: record");
+    check.expect(options.archive && options.archiveDir == "/tmp/rec" &&
+                     near(options.archiveSegmentSeconds, customSegment) &&
+                     near(options.archiveMaxStorageGb, customArchiveStorage) &&
+                     options.archiveKeepDays == customArchiveDays,
+                 "config: archive");
     check.expect(options.stream && options.streamUrl == "rtsp://10.0.0.2:8554/cam",
                  "config: stream");
     check.expect(options.frames == customFrames && near(options.statsSeconds, customStats),
                  "config: run");
     check.expect(
         keptByResult(result, options.modelPath) && keptByResult(result, options.cameraNode) &&
-            keptByResult(result, options.outputDir) && keptByResult(result, options.recordDir),
+            keptByResult(result, options.outputDir) && keptByResult(result, options.archiveDir),
         "the text options point at the strings the result keeps");
 
     // The result moves without losing its strings (short strings live inside their element).
     ParseResult moved{parseIn(root.string(), {})};
     const ParseResult later{std::move(moved)};
     check.expect(later.options.modelPath == "/models/a.rknn" &&
-                     later.options.recordDir == "/tmp/rec",
+                     later.options.archiveDir == "/tmp/rec",
                  "the strings survive a move of the result");
 }
 
 void checkConfigOrder(Check& check, const fs::path& root) {
     writeDefaultConfig(
         root,
-        R"({"model": "m", "camera": {"width": 1280, "node": "/a"}, "record": {"enabled": true}})");
+        R"({"model": "m", "camera": {"width": 1280, "node": "/a"}, "archive": {"enabled": true}})");
     const ParseResult fromFile{parseIn(root.string(), {})};
     check.expect(fromFile.status == ParseStatus::Run && fromFile.options.width == customWidth &&
-                     fromFile.options.record && fromFile.options.cameraNode == "/a",
+                     fromFile.options.archive && fromFile.options.cameraNode == "/a",
                  "the file gives the values it names");
     check.expect(near(fromFile.options.holdSeconds, defaultHoldSeconds) &&
                      fromFile.options.height == defaultCameraHeight,
@@ -419,9 +420,9 @@ void checkConfigOrder(Check& check, const fs::path& root) {
         overridden.status == ParseStatus::Run && overridden.options.width == repeatedWidth &&
             overridden.options.modelPath == "other" && overridden.options.cameraNode == "/b",
         "the command line wins over the file");
-    check.expect(overridden.options.record, "a key the command line does not give stays");
-    check.expect(!parseIn(root.string(), {"--record", "false"}).options.record,
-                 "--record false turns off what the file turned on");
+    check.expect(overridden.options.archive, "a key the command line does not give stays");
+    check.expect(!parseIn(root.string(), {"--archive", "false"}).options.archive,
+                 "--archive false turns off what the file turned on");
 
     const ParseResult twice{parseIn(root.string(), {"--width", "800", "--width", "640"})};
     check.expect(twice.options.width == repeatedWidth, "the last of two command line values wins");
@@ -437,15 +438,15 @@ void checkConfigOrder(Check& check, const fs::path& root) {
                      split.options.height == customHeight,
                  "a group given in two parts");
 
-    writeDefaultConfig(root, R"({"model": "m", "record": {"enabled": false}})");
-    check.expect(!parseIn(root.string(), {}).options.record, "record false stays off");
-    check.expect(parseIn(root.string(), {"--record", "true"}).options.record,
-                 "--record true turns on what the file left off");
+    writeDefaultConfig(root, R"({"model": "m", "archive": {"enabled": false}})");
+    check.expect(!parseIn(root.string(), {}).options.archive, "archive false stays off");
+    check.expect(parseIn(root.string(), {"--archive", "true"}).options.archive,
+                 "--archive true turns on what the file left off");
     writeDefaultConfig(root, R"({"model": "m", "stream": {"enabled": true}})");
     check.expect(parseIn(root.string(), {}).options.stream, "stream true from the file");
     check.expect(!parseIn(root.string(), {"--stream", "false"}).options.stream,
                  "--stream false turns off what the file turned on");
-    writeDefaultConfig(root, R"({"model": "m", "camera": {}, "record": {}})");
+    writeDefaultConfig(root, R"({"model": "m", "camera": {}, "archive": {}})");
     check.expect(parseIn(root.string(), {}).status == ParseStatus::Run, "empty groups");
 }
 
@@ -532,7 +533,8 @@ void checkConfigRefusals(Check& check, const fs::path& root) {
         {R"({"model": "m", "camera": {"--width": 1280}})", "a key with its dashes"},
         {R"({"model": "m", "encode": {"video-kbps": 8000}})", "a key with - instead of _"},
         {R"({"model": "m", "violation": {"dir": "/x"}})", "the old dir key"},
-        {R"({"model": "m", "record": {"dir": "/x"}})", "the old record dir key"},
+        {R"({"model": "m", "archive": {"dir": "/x"}})", "the old archive dir key"},
+        {R"({"model": "m", "record": {"enabled": true}})", "the old record group"},
         {R"({"model": "m", "camera": {"width": 1281}})", "an odd width"},
         {R"({"model": "m", "camera": {"width": true}})", "a boolean for a number"},
         {R"({"model": "m", "camera": {"width": "1280"}})", "text for a number"},
@@ -540,18 +542,18 @@ void checkConfigRefusals(Check& check, const fs::path& root) {
         {R"({"model": "m", "camera": {"rotation": 45}})", "a rotation that is not allowed"},
         {R"({"model": "m", "camera": {"rotation": "180"}})", "text for the rotation"},
         {R"({"model": "m", "camera": {"node": 11}})", "a number for the node"},
-        {R"({"model": "m", "record": {"enabled": 1}})", "a number for enabled"},
+        {R"({"model": "m", "archive": {"enabled": 1}})", "a number for enabled"},
         {R"({"model": "m", "stream": {"enabled": "true"}})", "text for stream enabled"},
         {R"({"model": "m", "stream": {"url": ""}})", "an empty stream address"},
         {R"({"model": "m", "stream": {"port": 1}})", "an unknown stream key"},
-        {R"({"model": "m", "record": {"enabled": "true"}})", "text for enabled"},
+        {R"({"model": "m", "archive": {"enabled": "true"}})", "text for enabled"},
         {R"({"model": true})", "a boolean for the model"},
         {R"({"model": 5})", "a number for the model"},
         {R"({"model": ""})", "an empty model"},
         {R"({"model": "m", "rule": {"min_confidence": 1.5}})", "a confidence above 1"},
         {R"({"model": "m", "violation": {"keep_days": 0}})", "keep_days 0"},
         {R"({"model": "m", "violation": {"output_dir": ""}})", "an empty violation folder"},
-        {R"({"model": "m", "record": {"output_dir": ""}})", "an empty record folder"},
+        {R"({"model": "m", "archive": {"output_dir": ""}})", "an empty archive folder"},
         {R"({"model": "m", )", "a cut text"},
         {"", "an empty file"},
         {"[]", "an array"},

@@ -169,13 +169,13 @@ bool setKeepDays(AppOptions& options, const char* text) {
     return true;
 }
 
-// --record takes true or false.
-bool setRecord(AppOptions& options, const char* text) {
+// --archive takes true or false.
+bool setArchive(AppOptions& options, const char* text) {
     const std::string_view value{text};
     if (value != "true" && value != "false") {
         return false;
     }
-    options.record = value == "true";
+    options.archive = value == "true";
     return true;
 }
 
@@ -193,35 +193,35 @@ bool setStreamUrl(AppOptions& options, const char* text) {
     return *text != '\0';
 }
 
-bool setRecordOutputDir(AppOptions& options, const char* text) {
-    options.recordDir = text;
+bool setArchiveOutputDir(AppOptions& options, const char* text) {
+    options.archiveDir = text;
     return *text != '\0';
 }
 
-bool setRecordSegmentSeconds(AppOptions& options, const char* text) {
+bool setArchiveSegmentSeconds(AppOptions& options, const char* text) {
     double value{0.0};
     if (!parseReal(text, std::nextafter(0.0, 1.0), maxSegmentSeconds, value)) {
         return false;
     }
-    options.recordSegmentSeconds = value;
+    options.archiveSegmentSeconds = value;
     return true;
 }
 
-bool setRecordMaxStorageGb(AppOptions& options, const char* text) {
+bool setArchiveMaxStorageGb(AppOptions& options, const char* text) {
     double value{0.0};
     if (!parseReal(text, std::nextafter(0.0, 1.0), maxStorageGbLimit, value)) {
         return false;
     }
-    options.recordMaxStorageGb = value;
+    options.archiveMaxStorageGb = value;
     return true;
 }
 
-bool setRecordKeepDays(AppOptions& options, const char* text) {
+bool setArchiveKeepDays(AppOptions& options, const char* text) {
     std::int64_t value{0};
     if (!parseWhole(text, 1, maxKeepDays, value)) {
         return false;
     }
-    options.recordKeepDays = static_cast<int>(value);
+    options.archiveKeepDays = static_cast<int>(value);
     return true;
 }
 
@@ -288,16 +288,16 @@ constexpr std::array<Flag, 25> flags{{
      JsonKind::Number, "violation.max_storage_gb"},
     {"--keep-days", setKeepDays, "days a violation is kept, 1 to 3650", JsonKind::Number,
      "violation.keep_days"},
-    {"--record", setRecord, "record the video continuously, true or false", JsonKind::Boolean,
-     "record.enabled"},
-    {"--record-output-dir", setRecordOutputDir, "folder of the recordings", JsonKind::String,
-     "record.output_dir"},
-    {"--record-segment-seconds", setRecordSegmentSeconds, "seconds of video in a recording file",
-     JsonKind::Number, "record.segment_seconds"},
-    {"--record-max-storage-gb", setRecordMaxStorageGb, "most gigabytes the recordings may use",
-     JsonKind::Number, "record.max_storage_gb"},
-    {"--record-keep-days", setRecordKeepDays, "days a recording is kept, 1 to 3650",
-     JsonKind::Number, "record.keep_days"},
+    {"--archive", setArchive, "archive the video in segment files, true or false",
+     JsonKind::Boolean, "archive.enabled"},
+    {"--archive-output-dir", setArchiveOutputDir, "folder of the archive", JsonKind::String,
+     "archive.output_dir"},
+    {"--archive-segment-seconds", setArchiveSegmentSeconds, "seconds of video in an archive file",
+     JsonKind::Number, "archive.segment_seconds"},
+    {"--archive-max-storage-gb", setArchiveMaxStorageGb, "most gigabytes the archive may use",
+     JsonKind::Number, "archive.max_storage_gb"},
+    {"--archive-keep-days", setArchiveKeepDays, "days an archive file is kept, 1 to 3650",
+     JsonKind::Number, "archive.keep_days"},
     {"--stream", setStream, "stream the video live over RTSP, true or false", JsonKind::Boolean,
      "stream.enabled"},
     {"--stream-url", setStreamUrl, "RTSP address the stream is published to", JsonKind::String,
