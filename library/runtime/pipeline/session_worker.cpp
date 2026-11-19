@@ -39,7 +39,7 @@ std::optional<SessionWorker> SessionWorker::create(const AppOptions& options, co
     std::optional<SessionWriter> writer{SessionWriter::create(
         SessionConfig{options.sessionDir,
                       static_cast<std::uint64_t>(options.sessionMinFreeGb * bytesPerGigabyte),
-                      defaultFileMode, nullptr, videoOutputOf(options.sessionFormat)},
+                      defaultFileMode, nullptr, videoOutputOf(options.fileFormat)},
         log)};
     if (!queue || !writer) {
         return std::nullopt;

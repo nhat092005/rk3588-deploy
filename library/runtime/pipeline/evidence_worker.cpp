@@ -188,8 +188,7 @@ std::optional<EvidenceWorker> EvidenceWorker::create(const AppOptions& options, 
     const ImageSize size{options.violationImage ? image : frame};
     const float boxScale{static_cast<float>(size.height) / static_cast<float>(frame.height)};
     std::optional<ViolationStore> store{ViolationStore::create(
-        StoreConfig{options.outputDir, defaultFileMode, videoOutputOf(options.violationClipFormat)},
-        log)};
+        StoreConfig{options.outputDir, defaultFileMode, videoOutputOf(options.fileFormat)}, log)};
     const JpegConfig config{size.width,  size.height, stride,
                             size.height, fullRange,   options.jpegQuality};
     std::optional<JpegEncoder> first;

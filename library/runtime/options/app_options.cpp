@@ -188,16 +188,8 @@ bool parseFormat(const char* text, VideoFormat& format) {
     return true;
 }
 
-bool setViolationClipFormat(AppOptions& options, const char* text) {
-    return parseFormat(text, options.violationClipFormat);
-}
-
-bool setArchiveFormat(AppOptions& options, const char* text) {
-    return parseFormat(text, options.archiveFormat);
-}
-
-bool setSessionFormat(AppOptions& options, const char* text) {
-    return parseFormat(text, options.sessionFormat);
+bool setFileFormat(AppOptions& options, const char* text) {
+    return parseFormat(text, options.fileFormat);
 }
 
 bool setViolationClipHeight(AppOptions& options, const char* text) {
@@ -385,7 +377,7 @@ struct Flag {
     std::string_view path;
 };
 
-constexpr std::array<Flag, 44> flags{{
+constexpr std::array<Flag, 42> flags{{
     {"--model", setModel, "path of the .rknn model (required unless the config file gives it)",
      JsonKind::String, "model"},
     {"--config", setConfig, "config file, default <app folder>/resource/config/app_config.json",
@@ -400,6 +392,10 @@ constexpr std::array<Flag, 44> flags{{
      "encode.video_kbps"},
     {"--jpeg-quality", setJpegQuality, "JPEG quality factor, 1 to 99", JsonKind::Number,
      "encode.jpeg_quality"},
+    {"--file-format", setFileFormat,
+     "how the video files (clip, archive, session) are stored: h265 (the encoder's bytes) or mp4 "
+     "(fragmented MP4)",
+     JsonKind::String, "encode.file_format"},
     {"--hold-seconds", setHoldSeconds, "seconds before a violation is reported", JsonKind::Number,
      "rule.hold_seconds"},
     {"--gap-seconds", setGapSeconds, "seconds of break that do not end a violation",
@@ -426,9 +422,6 @@ constexpr std::array<Flag, 44> flags{{
     {"--violation-clip-downscale-height", setViolationClipHeight,
      "height of the scaled violation clips, even, 240 to 16384", JsonKind::Number,
      "violation.clip.downscale.height"},
-    {"--violation-clip-format", setViolationClipFormat,
-     "how the clip is stored: h265 (the encoder's bytes) or mp4 (fragmented MP4)", JsonKind::String,
-     "violation.clip.format"},
     {"--violation-clip-pre-seconds", setClipPreSeconds,
      "seconds of video kept before a violation, 0 to 60", JsonKind::Number,
      "violation.clip.pre_seconds"},
@@ -449,9 +442,6 @@ constexpr std::array<Flag, 44> flags{{
     {"--archive-downscale-height", setArchiveHeight,
      "height of the scaled archive video, even, 240 to 16384", JsonKind::Number,
      "archive.downscale.height"},
-    {"--archive-format", setArchiveFormat,
-     "how the archive files are stored: h265 (the encoder's bytes) or mp4 (fragmented MP4)",
-     JsonKind::String, "archive.format"},
     {"--archive-output-dir", setArchiveOutputDir, "folder of the archive", JsonKind::String,
      "archive.output_dir"},
     {"--archive-segment-seconds", setArchiveSegmentSeconds, "seconds of video in an archive file",
@@ -470,9 +460,6 @@ constexpr std::array<Flag, 44> flags{{
     {"--session-downscale-height", setSessionHeight,
      "height of the scaled session video, even, 240 to 16384", JsonKind::Number,
      "session.downscale.height"},
-    {"--session-format", setSessionFormat,
-     "how the session video is stored: h265 (the encoder's bytes) or mp4 (fragmented MP4)",
-     JsonKind::String, "session.format"},
     {"--session-output-dir", setSessionOutputDir, "folder of the session video", JsonKind::String,
      "session.output_dir"},
     {"--session-min-free-gb", setSessionMinFreeGb,

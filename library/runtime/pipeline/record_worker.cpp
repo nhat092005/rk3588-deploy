@@ -79,7 +79,7 @@ std::optional<RecordWorker> RecordWorker::create(const AppOptions& options, cons
         PacketQueue::create(ringBytes, maxQueuedPackets, defaultVideoCapacity)};
     std::optional<SegmentWriter> writer{
         SegmentWriter::create(SegmentConfig{options.archiveDir, options.archiveSegmentSeconds,
-                                            defaultFileMode, videoOutputOf(options.archiveFormat)},
+                                            defaultFileMode, videoOutputOf(options.fileFormat)},
                               log)};
     std::optional<RecordingRetention> retention{RecordingRetention::create(
         RecordingRetentionConfig{
