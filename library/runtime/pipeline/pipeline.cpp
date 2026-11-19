@@ -215,8 +215,10 @@ std::optional<Capture> makeCapture(const AppOptions& options, NpuInfer& npu, con
     std::vector<Input> inputs;
     inputs.reserve(inputCount);
     for (std::size_t index{0}; index < inputCount; ++index) {
+        // fillPadding is a colour fill, which only the RGA2 does, and the RGA2 maps only memory
+        // below 4 GB: a buffer of the "system" heap may have a page above it (see lowHeap).
         std::optional<DmaBuf> buffer{
-            DmaBuf::allocate(DmaBufConfig{defaultHeap, npu.inputBytes()}, log)};
+            DmaBuf::allocate(DmaBufConfig{lowHeap, npu.inputBytes()}, log)};
         if (!buffer) {
             return std::nullopt;
         }
