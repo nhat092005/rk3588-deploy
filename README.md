@@ -154,6 +154,7 @@ Usage of each probe is in its file header. Exit code 0 and a last log line `PASS
 | | `probe_infer` | Repeated inference of one `.rknn` model: time, memory |
 | | `probe_camera` | V4L2 capture of one node: crop, NV12 format, FPS, dropped frames |
 | | `probe_dmabuf` | DMA-BUF heaps with RGA, RKNN and an MPP H.265 encode |
+| | `probe_fill_heap` | RGA colour fill on buffers of one heap: fails with "no core match" on a `system` buffer that has a page above 4 GB (`reserved` never does) |
 | `stage/` | `probe_letterbox` | RGA letterbox of a camera frame, then `tools/check/check_letterbox.py` |
 | | `probe_jpeg` | RGA upright copy then MPP JPEG, timings, then `tools/check/check_jpeg.py` |
 | | `probe_overlay` | RGA outlines and labels on a real 4K frame, timings, JPEG |
