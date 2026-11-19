@@ -11,9 +11,10 @@
 enum class JsonKind : std::uint8_t { String, Number, Boolean, Object };
 
 /**
- * @brief One pair. A pair inside a group has the name of the group in `group`, a pair at the top
- *        has an empty `group`. A group itself is an entry of kind Object with an empty value,
- *        followed by its pairs. A Boolean has the text `true` or `false`.
+ * @brief One pair. A pair inside a group has the name of the group in `group` (`a.b` for a group
+ *        `b` inside the group `a`), a pair at the top has an empty `group`. A group itself is an
+ *        entry of kind Object with an empty value, followed by its pairs; it carries the name of
+ *        its parent group in `group`. A Boolean has the text `true` or `false`.
  */
 struct JsonEntry {
     std::string group;
@@ -34,11 +35,12 @@ struct JsonParse {
 
 /**
  * @brief Reads the JSON object of a config file: pairs `"key": value` whose value is a string, a
- *        number, `true`, `false`, or a group, which is an object of such pairs (one level).
+ *        number, `true`, `false`, or a group, which is an object of such pairs and of groups (two
+ * levels).
  * @param text The whole text. Only whitespace may follow the closing brace.
  * @return ok with the entries, or the offset and the reason of the first failure.
  *
- * Not accepted, by design: a group inside a group, arrays, `null`, a backslash or a control
+ * Not accepted, by design: a third level of groups, arrays, `null`, a backslash or a control
  * character in a string, a number that is not in the JSON grammar, a comma before `}`.
  */
 JsonParse parseConfigJson(std::string_view text);

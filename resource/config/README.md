@@ -16,6 +16,7 @@
 - Every key is optional except `model`, which the file or `--model` must give.
 - An unknown key or group, a key in the wrong group, a wrong kind of value or a value out of range stops the app and names the key (`camera.width`).
 - Every flag takes a value, `--archive` and `--stream` too (`--archive false`), so a flag can turn off what the file turned on.
+- `violation` holds two groups, `image` and `clip` (`violation.clip.enabled`). No other group has one.
 - `--config` and `--help` have no key. `--help` lists the flags.
 - `min_free_gb`: free space that the disk of the folder keeps. Below it, violation and archive delete their oldest files, session stops writing. 0 turns it off. The defaults (2, 3, 3 GB) put video before evidence.
 
@@ -33,12 +34,15 @@
 | `rule.hold_seconds` | `--hold-seconds` | 1.0 | number, above 0 to 86400 |
 | `rule.gap_seconds` | `--gap-seconds` | 0.5 | number, 0 to 86400 |
 | `rule.min_confidence` | `--min-confidence` | 0.25 | number, 0 to 1 |
-| `violation.output_dir` | `--violation-output-dir` | `/data/violations` | string, must exist |
-| `violation.clip_pre_seconds` | `--clip-pre-seconds` | 5.0 | number, 0 to 60 |
-| `violation.clip_post_seconds` | `--clip-post-seconds` | 5.0 | number, 0 to 60 (both 0: no clip) |
+| `violation.enabled` | `--violation` | `true` | `true` or `false` |
+| `violation.output_dir` | `--violation-output-dir` | `/data/violations` | string, must exist when enabled |
 | `violation.max_storage_gb` | `--max-storage-gb` | 4.0 | number, above 0 to 100000 |
 | `violation.keep_days` | `--keep-days` | 30 | number, 1 to 3650 |
 | `violation.min_free_gb` | `--violation-min-free-gb` | 2.0 | number, 0 to 100000 (0: off) |
+| `violation.image.enabled` | `--violation-image` | `true` | `true` or `false` |
+| `violation.clip.enabled` | `--violation-clip` | `true` | `true` or `false` |
+| `violation.clip.pre_seconds` | `--violation-clip-pre-seconds` | 5.0 | number, 0 to 60 |
+| `violation.clip.post_seconds` | `--violation-clip-post-seconds` | 5.0 | number, 0 to 60 (not both 0 while the clip is on) |
 | `archive.enabled` | `--archive` | `false` | `true` or `false` |
 | `archive.output_dir` | `--archive-output-dir` | `/data/archive` | string |
 | `archive.segment_seconds` | `--archive-segment-seconds` | 60 | number, above 0 to 3600 |
@@ -52,5 +56,17 @@
 | `stream.url` | `--stream-url` | `rtsp://127.0.0.1:8554/live` | string, `rtsp://host[:port]/path` |
 | `run.frames` | `--frames` | 0 | number, 0 to 10^12 (0: no limit) |
 | `run.stats_seconds` | `--stats-seconds` | 1.0 | number, above 0 to 3600 |
+
+## Violation switches
+
+| | Folder of one violation |
+|---|---|
+| all on (default) | `event.json`, `original.jpg`, `marked.jpg`, `clip.h265` |
+| `violation.image.enabled` false | no JPEG, no copy of the frame, no JPEG encoder |
+| `violation.clip.enabled` false | no `clip.h265`, no clip ring |
+| both false | `event.json` alone (time, kind, box) |
+| `violation.enabled` false | nothing is stored and `output_dir` need not exist. The rule and the boxes in the video go on, so the stream, the archive and the session still show who violates |
+
+`image` and `clip` do nothing while `violation.enabled` is false.
 
 The live view (`stream.*`) is in `deploy/README.md`.

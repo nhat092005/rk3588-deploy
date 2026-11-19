@@ -23,7 +23,7 @@ double millisecondsSince(Clock::time_point start) {
 }
 
 std::optional<ClipConfig> clipConfigOf(const AppOptions& options) {
-    if (options.clipPreSeconds <= 0.0 && options.clipPostSeconds <= 0.0) {
+    if (!options.violationClip) {
         return std::nullopt;
     }
     ClipConfig config;
@@ -38,7 +38,7 @@ std::optional<ClipConfig> clipConfigOf(const AppOptions& options) {
 
 struct BranchState {
     BranchState(float confidence, Logger logger, const PacketSinks& outputs,
-                const RgaSnapshot& copier, FrameSlot target, const RgaSnapshot& imageCopier,
+                const RgaSnapshot& copier, FrameSlot target, std::optional<RgaSnapshot> imageCopier,
                 RgaOverlay outlines, RgaLabels texts, VideoEncoder encoder,
                 std::unique_ptr<EvidenceHub> shared)
         : minConfidence{confidence}, log{logger}, sinks{outputs}, snapshot{copier},
@@ -64,18 +64,23 @@ struct BranchState {
     PacketSinks sinks;
     RgaSnapshot snapshot;
     FrameSlot slot;
-    RgaSnapshot evidenceCopy;
+    // Empty when the violation images are off.
+    std::optional<RgaSnapshot> evidenceCopy;
     RgaOverlay overlay;
     RgaLabels labels;
     VideoEncoder video;
+    // Null when the violations are not stored.
     std::unique_ptr<EvidenceHub> evidence;
     std::vector<OverlayBox> boxes;
     std::int64_t nextEventId{1};
     BranchCounts totals;
 };
 
-// The clip recorder, or null when clips are off.
+// The clip recorder, or null when clips are off or the violations are not stored.
 ClipRecorder* BranchState::recorder() const {
+    if (!evidence) {
+        return nullptr;
+    }
     std::optional<ClipRecorder>& clips{evidence->clips};
     if (!clips) {
         return nullptr;
@@ -104,11 +109,12 @@ void BranchState::buildBoxes(const FrameData& data) {
 }
 
 // Takes a free evidence slot for the violations of the frame and copies the unmarked frame into
-// it. Null when the frame has none or no slot is free (the violations are then counted as
-// dropped). Fails the copy by returning null as well, after counting.
+// it (when the images are on). Null when the violations are not stored, the frame has none or no
+// slot is free (the violations are then counted as dropped). Fails the copy by returning null as
+// well, after counting.
 EvidenceSlot* BranchState::takeEvidence(const FrameData& data, std::size_t eventCount,
                                         BranchTimes& times) {
-    if (eventCount == 0) {
+    if (!evidence || eventCount == 0) {
         return nullptr;
     }
     const auto free{std::find_if(evidence->slots.begin(), evidence->slots.end(),
@@ -127,7 +133,7 @@ EvidenceSlot* BranchState::takeEvidence(const FrameData& data, std::size_t event
     }
     taken.eventCount = eventCount;
     taken.wallTime = std::time(nullptr);
-    if (!evidenceCopy.run(slot.image, taken.original.image)) {
+    if (taken.original && evidenceCopy && !evidenceCopy->run(slot.image, taken.original->image)) {
         totals.evidenceDropped += eventCount;
         return nullptr;
     }
@@ -144,11 +150,11 @@ bool BranchState::drawFrame(const FrameData& data, EvidenceSlot* evidenceSlot, B
         return false;
     }
     times.draw = millisecondsSince(start);
-    if (evidenceSlot == nullptr) {
+    if (evidenceSlot == nullptr || !evidenceSlot->marked || !evidenceCopy) {
         return true;
     }
     const Clock::time_point copyStart{Clock::now()};
-    const bool copied{evidenceCopy.run(slot.image, evidenceSlot->marked.image)};
+    const bool copied{evidenceCopy->run(slot.image, evidenceSlot->marked->image)};
     times.evidence += millisecondsSince(copyStart);
     return copied;
 }
@@ -208,8 +214,12 @@ std::optional<OutputBranch> OutputBranch::create(const AppOptions& options,
         return std::nullopt;
     }
     const ImageSize size{snapshot->size()};
-    std::optional<RgaSnapshot> imageCopier{
-        RgaSnapshot::create(SnapshotConfig{size, snapshot->stride(), Rotation::None}, log)};
+    const bool images{options.violation && options.violationImage};
+    std::optional<RgaSnapshot> imageCopier;
+    if (images) {
+        imageCopier =
+            RgaSnapshot::create(SnapshotConfig{size, snapshot->stride(), Rotation::None}, log);
+    }
     std::optional<FrameSlot> slot{makeFrameSlot(snapshot->bytes(), lowHeap, log)};
     OverlayConfig overlayConfig;
     overlayConfig.size = size;
@@ -224,19 +234,22 @@ std::optional<OutputBranch> OutputBranch::create(const AppOptions& options,
     videoConfig.fullRange = format.fullRange;
     videoConfig.kbps = options.videoKbps;
     std::optional<VideoEncoder> video{VideoEncoder::create(videoConfig, log)};
-    if (!imageCopier || !slot || !overlay || !labels || !video) {
+    if ((images && !imageCopier) || !slot || !overlay || !labels || !video) {
         return std::nullopt;
     }
     if (!overlay->check(slot->image)) {
         return std::nullopt;
     }
-    std::unique_ptr<EvidenceHub> hub{
-        makeEvidenceHub(EvidenceConfig{snapshot->bytes(), clipConfigOf(options)}, log)};
-    if (!hub) {
-        return std::nullopt;
+    std::unique_ptr<EvidenceHub> hub;
+    if (options.violation) {
+        hub =
+            makeEvidenceHub(EvidenceConfig{snapshot->bytes(), images, clipConfigOf(options)}, log);
+        if (!hub) {
+            return std::nullopt;
+        }
     }
     auto state{std::make_unique<BranchState>(
-        options.minConfidence, log, sinks, *snapshot, std::move(*slot), *imageCopier,
+        options.minConfidence, log, sinks, *snapshot, std::move(*slot), imageCopier,
         std::move(*overlay), std::move(*labels), std::move(*video), std::move(hub))};
     return std::optional<OutputBranch>{OutputBranch{std::move(state)}};
 }
@@ -255,8 +268,8 @@ int OutputBranch::imageStride() const noexcept {
     return state->snapshot.stride();
 }
 
-EvidenceHub& OutputBranch::hub() noexcept {
-    return *state->evidence;
+EvidenceHub* OutputBranch::hub() noexcept {
+    return state->evidence.get();
 }
 
 bool OutputBranch::copy(const RgaImage& cameraFrame) noexcept {

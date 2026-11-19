@@ -133,6 +133,28 @@ bool setMinConfidence(AppOptions& options, const char* text) {
     return true;
 }
 
+// true or false, nothing else.
+bool parseSwitch(const char* text, bool& value) {
+    const std::string_view word{text};
+    if (word != "true" && word != "false") {
+        return false;
+    }
+    value = word == "true";
+    return true;
+}
+
+bool setViolation(AppOptions& options, const char* text) {
+    return parseSwitch(text, options.violation);
+}
+
+bool setViolationImage(AppOptions& options, const char* text) {
+    return parseSwitch(text, options.violationImage);
+}
+
+bool setViolationClip(AppOptions& options, const char* text) {
+    return parseSwitch(text, options.violationClip);
+}
+
 bool setClipPreSeconds(AppOptions& options, const char* text) {
     double value{0.0};
     if (!parseReal(text, 0.0, maxClipSeconds, value)) {
@@ -298,7 +320,7 @@ struct Flag {
     std::string_view path;
 };
 
-constexpr std::array<Flag, 30> flags{{
+constexpr std::array<Flag, 33> flags{{
     {"--model", setModel, "path of the .rknn model (required unless the config file gives it)",
      JsonKind::String, "model"},
     {"--config", setConfig, "config file, default <app folder>/resource/config/app_config.json",
@@ -319,12 +341,20 @@ constexpr std::array<Flag, 30> flags{{
      JsonKind::Number, "rule.gap_seconds"},
     {"--min-confidence", setMinConfidence, "lowest confidence of a NoHelmet or NoVest box, 0 to 1",
      JsonKind::Number, "rule.min_confidence"},
+    {"--violation", setViolation, "save the violations as files, true or false", JsonKind::Boolean,
+     "violation.enabled"},
     {"--violation-output-dir", setViolationOutputDir, "folder of the violation files",
      JsonKind::String, "violation.output_dir"},
-    {"--clip-pre-seconds", setClipPreSeconds, "seconds of video kept before a violation, 0 to 60",
-     JsonKind::Number, "violation.clip_pre_seconds"},
-    {"--clip-post-seconds", setClipPostSeconds, "seconds of video after a violation, 0 to 60",
-     JsonKind::Number, "violation.clip_post_seconds"},
+    {"--violation-image", setViolationImage, "save the two images of a violation, true or false",
+     JsonKind::Boolean, "violation.image.enabled"},
+    {"--violation-clip", setViolationClip, "save the video clip of a violation, true or false",
+     JsonKind::Boolean, "violation.clip.enabled"},
+    {"--violation-clip-pre-seconds", setClipPreSeconds,
+     "seconds of video kept before a violation, 0 to 60", JsonKind::Number,
+     "violation.clip.pre_seconds"},
+    {"--violation-clip-post-seconds", setClipPostSeconds,
+     "seconds of video after a violation, 0 to 60", JsonKind::Number,
+     "violation.clip.post_seconds"},
     {"--max-storage-gb", setMaxStorageGb, "most gigabytes the violation folder may use",
      JsonKind::Number, "violation.max_storage_gb"},
     {"--keep-days", setKeepDays, "days a violation is kept, 1 to 3650", JsonKind::Number,
@@ -389,11 +419,11 @@ const Flag* findPath(std::string_view path) {
     return nullptr;
 }
 
-// Whether some flag lives in the group of that name.
-bool isGroup(std::string_view name) {
-    return std::any_of(flags.begin(), flags.end(), [name](const Flag& flag) {
-        const std::size_t dot{flag.path.find('.')};
-        return dot != std::string_view::npos && flag.path.substr(0, dot) == name;
+// Whether some flag lives in the group of that path ("violation" or "violation.clip").
+bool isGroup(std::string_view path) {
+    return std::any_of(flags.begin(), flags.end(), [path](const Flag& flag) {
+        return flag.path.size() > path.size() && flag.path.substr(0, path.size()) == path &&
+               flag.path[path.size()] == '.';
     });
 }
 
@@ -455,7 +485,7 @@ bool applyConfig(const FileText& file, const std::string& path, std::string_view
     for (JsonEntry& entry : json.entries) {
         const std::string where{entry.group.empty() ? entry.key : entry.group + "." + entry.key};
         if (entry.kind == JsonKind::Object) {
-            if (!isGroup(entry.key)) {
+            if (!isGroup(where)) {
                 log.error(path, ": unknown group ", where);
                 return false;
             }
@@ -550,6 +580,13 @@ ParseResult parseOptions(const std::vector<const char*>& args, std::string_view 
     if (result.options.modelPath.empty()) {
         log.error("a model is required: --model, or \"model\" in the config file");
         logUsage(program, log);
+        return result;
+    }
+    const AppOptions& chosen{result.options};
+    if (chosen.violation && chosen.violationClip && chosen.clipPreSeconds <= 0.0 &&
+        chosen.clipPostSeconds <= 0.0) {
+        log.error("the violation clip is on but pre_seconds and post_seconds are both 0: give one "
+                  "of them a time, or turn the clip off (--violation-clip false)");
         return result;
     }
     result.status = ParseStatus::Run;

@@ -108,7 +108,8 @@ struct Parts {
     std::optional<SessionWorker> session;
     std::optional<StreamWorker> stream;
     OutputBranch output;
-    EvidenceWorker evidence;
+    // Empty when the violations are not stored (--violation false).
+    std::optional<EvidenceWorker> evidence;
 };
 } // namespace
 
@@ -147,7 +148,7 @@ struct PipelineState {
     std::optional<SessionWorker> session;
     std::optional<StreamWorker> stream;
     OutputBranch output;
-    EvidenceWorker evidence;
+    std::optional<EvidenceWorker> evidence;
     std::vector<Detection> persons;
     std::array<FrameData, frameDataCount> frames;
     std::array<std::atomic<bool>, inputCount> inputBusy{};
@@ -304,10 +305,15 @@ std::optional<Parts> makeParts(const AppOptions& options, const Logger& log) {
     if (!output) {
         return std::nullopt;
     }
-    std::optional<EvidenceWorker> evidence{EvidenceWorker::create(
-        options, output->imageSize(), output->imageStride(), format.fullRange, log)};
-    if (!evidence) {
-        return std::nullopt;
+    std::optional<EvidenceWorker> evidence;
+    if (options.violation) {
+        evidence = EvidenceWorker::create(options, output->imageSize(), output->imageStride(),
+                                          format.fullRange, log);
+        if (!evidence) {
+            return std::nullopt;
+        }
+    } else {
+        log.info("violations are not stored (--violation false): the rule and the boxes go on");
     }
     const LetterboxLayout& layout{capture->letterbox.layout()};
     const SourceMapping mapping{layout.gain, layout.left, layout.top, layout.source.width,
@@ -325,7 +331,7 @@ std::optional<Parts> makeParts(const AppOptions& options, const Logger& log) {
                  std::move(session),
                  std::move(stream),
                  std::move(*output),
-                 std::move(*evidence)};
+                 std::move(evidence)};
 }
 
 // The period of a thread's statistics lines.
@@ -686,7 +692,9 @@ void writerLoop(PipelineState& state) {
 
 void evidenceLoop(PipelineState& state) {
     pinCurrentThread(evidenceCpu, "evidence", state.log);
-    state.evidence.run(state.output.hub());
+    if (state.evidence) {
+        state.evidence->run(*state.output.hub());
+    }
 }
 
 void streamLoop(PipelineState& state) {
@@ -717,20 +725,24 @@ constexpr int gbPrecision{1};
 
 // Warns when the limits of the folders cannot all be reached on the disk: the free-space floor
 // would trim a folder before it reaches its own limit.
-void warnIfOverCommitted(const AppOptions& options, const EvidenceWorker& evidence,
+// `evidence` is null when the violations are not stored: there is no violation folder then.
+void warnIfOverCommitted(const AppOptions& options, const EvidenceWorker* evidence,
                          const RecordWorker* record, const Logger& log) {
     const std::string violationDir{options.outputDir};
-    const FolderBudget violations{
-        static_cast<std::uint64_t>(options.maxStorageGb * bytesPerGigabyte),
-        static_cast<std::uint64_t>(options.minFreeGb * bytesPerGigabyte), evidence.storedBytes()};
-    std::vector<FolderBudget> sharing{violations};
+    std::vector<FolderBudget> sharing;
+    if (evidence != nullptr) {
+        sharing.push_back(
+            FolderBudget{static_cast<std::uint64_t>(options.maxStorageGb * bytesPerGigabyte),
+                         static_cast<std::uint64_t>(options.minFreeGb * bytesPerGigabyte),
+                         evidence->storedBytes()});
+    }
     if (record != nullptr) {
         const std::string archiveDir{options.archiveDir};
         const FolderBudget archived{
             static_cast<std::uint64_t>(options.archiveMaxStorageGb * bytesPerGigabyte),
             static_cast<std::uint64_t>(options.archiveMinFreeGb * bytesPerGigabyte),
             record->storedBytes()};
-        if (sameVolume(violationDir, archiveDir)) {
+        if (evidence != nullptr && sameVolume(violationDir, archiveDir)) {
             sharing.push_back(archived);
         } else {
             const std::optional<std::uint64_t> otherFree{volumeFreeBytes(archiveDir)};
@@ -742,6 +754,9 @@ void warnIfOverCommitted(const AppOptions& options, const EvidenceWorker& eviden
                          " GB free: the oldest archive files will go before the limit is reached");
             }
         }
+    }
+    if (evidence == nullptr) {
+        return;
     }
     const std::optional<std::uint64_t> free{volumeFreeBytes(violationDir)};
     if (free && overCommitted(sharing, *free)) {
@@ -763,7 +778,8 @@ std::optional<Pipeline> Pipeline::create(const AppOptions& options, const Logger
     auto state{std::make_unique<PipelineState>(options, log, std::move(*parts))};
     const std::optional<RecordWorker>& record{state->record};
     const RecordWorker* recording{record ? &*record : nullptr};
-    warnIfOverCommitted(options, state->evidence, recording, log);
+    const std::optional<EvidenceWorker>& evidence{state->evidence};
+    warnIfOverCommitted(options, evidence ? &*evidence : nullptr, recording, log);
     return std::optional<Pipeline>{Pipeline{std::move(state)}};
 }
 
@@ -774,7 +790,10 @@ Pipeline::~Pipeline() = default;
 
 bool Pipeline::run(const StopSignal& stop) {
     PipelineState& pipe{*state};
-    std::thread evidenceThread{[&pipe] { evidenceLoop(pipe); }};
+    std::thread evidenceThread;
+    if (pipe.evidence) {
+        evidenceThread = std::thread{[&pipe] { evidenceLoop(pipe); }};
+    }
     std::thread recordThread;
     if (pipe.record) {
         recordThread = std::thread{[&pipe] { recordLoop(pipe); }};
@@ -794,7 +813,9 @@ bool Pipeline::run(const StopSignal& stop) {
     // to end.
     npuThread.join();
     writerThread.join();
-    pipe.output.hub().queue.close();
+    if (EvidenceHub * hub{pipe.output.hub()}; hub != nullptr) {
+        hub->queue.close();
+    }
     if (pipe.stream) {
         // A live picture is not worth waiting for: what is still queued is dropped.
         pipe.stream->stop();
@@ -808,16 +829,22 @@ bool Pipeline::run(const StopSignal& stop) {
         pipe.session->queue().close();
         sessionThread.join();
     }
-    evidenceThread.join();
-    const EvidenceCounts& saved{pipe.evidence.counts()};
-    pipe.log.info("processed ", pipe.counters.frames.load(), " frames, violations ",
-                  pipe.counters.violations.load(), " (saved ", saved.violationsSaved.load(),
-                  ", failed ", saved.violationsFailed.load(), ", lost ",
-                  pipe.counters.lostViolations.load(), "), clips saved ", saved.clipsSaved.load(),
-                  " (failed ", saved.clipsFailed.load(), "), refused ",
-                  saved.violationsRefused.load(), ", old removed ", saved.violationsRemoved.load(),
-                  ", dropped camera ", pipe.counters.droppedCamera.load(), ", bad ",
-                  pipe.counters.badFrames.load());
+    if (pipe.evidence) {
+        evidenceThread.join();
+        const EvidenceCounts& saved{pipe.evidence->counts()};
+        pipe.log.info("processed ", pipe.counters.frames.load(), " frames, violations ",
+                      pipe.counters.violations.load(), " (saved ", saved.violationsSaved.load(),
+                      ", failed ", saved.violationsFailed.load(), ", lost ",
+                      pipe.counters.lostViolations.load(), "), clips saved ",
+                      saved.clipsSaved.load(), " (failed ", saved.clipsFailed.load(), "), refused ",
+                      saved.violationsRefused.load(), ", old removed ",
+                      saved.violationsRemoved.load(), ", dropped camera ",
+                      pipe.counters.droppedCamera.load(), ", bad ", pipe.counters.badFrames.load());
+    } else {
+        pipe.log.info("processed ", pipe.counters.frames.load(), " frames, violations ",
+                      pipe.counters.violations.load(), " (not stored), dropped camera ",
+                      pipe.counters.droppedCamera.load(), ", bad ", pipe.counters.badFrames.load());
+    }
     if (pipe.record) {
         const RecordCounts& recorded{pipe.record->counts()};
         const PacketQueue& queue{pipe.record->queue()};

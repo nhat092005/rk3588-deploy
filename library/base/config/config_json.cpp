@@ -69,14 +69,7 @@ private:
             }
             skipSpace();
             if (more() && peek() == '{') {
-                if (!group.empty()) {
-                    return refuse("a group inside a group");
-                }
-                ++at;
-                entry.kind = JsonKind::Object;
-                const std::string name{entry.key};
-                result.entries.push_back(std::move(entry));
-                if (!readMembers(name)) {
+                if (!readGroup(std::move(entry), group)) {
                     return false;
                 }
             } else {
@@ -94,6 +87,19 @@ private:
             }
             return refuse("expected , or }");
         }
+    }
+
+    // A group named by `entry`, inside the object `parent`: its entry, then its members. Two levels
+    // at most: a group of a group, but not a third one.
+    bool readGroup(JsonEntry entry, const std::string& parent) {
+        if (parent.find('.') != std::string::npos) {
+            return refuse("a group inside a group of a group");
+        }
+        ++at;
+        entry.kind = JsonKind::Object;
+        const std::string name{parent.empty() ? entry.key : parent + "." + entry.key};
+        result.entries.push_back(std::move(entry));
+        return readMembers(name);
     }
 
     bool more() const {

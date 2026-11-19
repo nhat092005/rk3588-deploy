@@ -114,7 +114,7 @@ A full queue drops the frame and counts it. It never blocks the producer.
 | camera | V4L2 dequeue, RGA letterbox |
 | NPU | Inference, decode, tracker, rule |
 | writer | Upright copy, outlines, labels, H.265, clip ring |
-| evidence | 2 JPEGs, `event.json`, `clip.h265`, retention |
+| evidence | 2 JPEGs, `event.json`, `clip.h265`, retention. Not started with `--violation false` |
 | archive | Segment files, only with `--archive true` |
 | session | One file for the run, only with `--session true` |
 | stream | Packets to `ffmpeg`, only with `--stream true` |

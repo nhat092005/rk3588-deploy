@@ -116,6 +116,8 @@ std::string eventJson(const ViolationRecord& record) {
     const ViolationEvent& event{record.event};
     std::array<char, jsonBufferBytes> text{};
     const std::string wall{formatTime(record.wallTime, "%Y-%m-%dT%H:%M:%S%z")};
+    const std::string original{record.original.size > 0 ? std::string{"\""} + originalName + "\""
+                                                        : std::string{"null"}};
     const std::string marked{record.marked.size > 0 ? std::string{"\""} + markedName + "\""
                                                     : std::string{"null"}};
     const int length{std::snprintf(
@@ -129,12 +131,12 @@ std::string eventJson(const ViolationRecord& record) {
         "  \"reported_seconds\": %.3f,\n"
         "  \"image\": {\"width\": %d, \"height\": %d},\n"
         "  \"person_box\": {\"left\": %.1f, \"top\": %.1f, \"right\": %.1f, \"bottom\": %.1f},\n"
-        "  \"files\": {\"original\": \"%s\", \"marked\": %s}\n"
+        "  \"files\": {\"original\": %s, \"marked\": %s}\n"
         "}\n",
         event.trackId, event.noHelmet ? "true" : "false", event.noVest ? "true" : "false",
         wall.c_str(), event.startSeconds, event.nowSeconds, record.imageWidth, record.imageHeight,
         static_cast<double>(event.left), static_cast<double>(event.top),
-        static_cast<double>(event.right), static_cast<double>(event.bottom), originalName,
+        static_cast<double>(event.right), static_cast<double>(event.bottom), original.c_str(),
         marked.c_str())};
     return std::string{text.data(), length > 0 ? static_cast<std::size_t>(length) : 0};
 }
@@ -169,7 +171,7 @@ std::optional<ViolationStore> ViolationStore::create(const StoreConfig& config, 
 
 std::optional<std::string> ViolationStore::save(const ViolationRecord& record) const noexcept {
     const std::string kind{kindName(record.event)};
-    if (kind.empty() || record.original.size == 0 || record.original.data == nullptr ||
+    if (kind.empty() || (record.original.size > 0 && record.original.data == nullptr) ||
         record.imageWidth <= 0 || record.imageHeight <= 0 ||
         (record.marked.size > 0 && record.marked.data == nullptr)) {
         log.error("bad violation record: kind '", kind, "' original ", record.original.size,
@@ -210,7 +212,8 @@ std::optional<std::string> ViolationStore::save(const ViolationRecord& record) c
     }
     const std::string json{eventJson(record)};
     const bool written{
-        writeFile(tempPath + "/" + originalName, record.original, fileMode, log) &&
+        (record.original.size == 0 ||
+         writeFile(tempPath + "/" + originalName, record.original, fileMode, log)) &&
         (record.marked.size == 0 ||
          writeFile(tempPath + "/" + markedName, record.marked, fileMode, log)) &&
         writeFile(tempPath + "/" + eventName,

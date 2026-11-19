@@ -83,8 +83,8 @@ public:
     int imageStride() const noexcept;
 
     /** @brief The evidence slots, clip recorder and queue, for the evidence thread. Owned by the
-     *         branch. */
-    EvidenceHub& hub() noexcept;
+     *         branch. Null when the violations are not stored (--violation false). */
+    EvidenceHub* hub() noexcept;
 
     /**
      * @brief Copies the camera frame into the next snapshot slot, rotated upright. The camera

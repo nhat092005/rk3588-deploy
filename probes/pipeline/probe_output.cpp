@@ -255,7 +255,7 @@ bool run(const Camera& camera, const StopSignal& stop, const Options& options, c
             return false;
         }
     }
-    std::thread evidenceThread{[&] { evidence->run(output->hub()); }};
+    std::thread evidenceThread{[&] { evidence->run(*output->hub()); }};
     std::thread recordThread;
     if (record) {
         recordThread = std::thread{[&] { record->run(); }};
@@ -279,7 +279,7 @@ bool run(const Camera& camera, const StopSignal& stop, const Options& options, c
     }
     output->finish();
     // Gives the evidence thread time to finish the queue, then ends it.
-    output->hub().queue.close();
+    output->hub()->queue.close();
     if (record) {
         record->queue().close();
         recordThread.join();

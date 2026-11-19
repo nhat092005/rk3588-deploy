@@ -45,6 +45,7 @@ constexpr double customArchiveStorage{2.5};
 constexpr int customArchiveDays{3};
 constexpr double customPre{2.5};
 constexpr double customPost{7.0};
+constexpr double fileClipPost{8.0};
 constexpr double realTolerance{1e-9};
 constexpr int otherWidth{1000};
 constexpr std::size_t oversizedConfigBytes{71680U};
@@ -111,6 +112,8 @@ void checkDefaults(Check& check) {
     check.expect(near(options.clipPreSeconds, defaultClipPreSeconds) &&
                      near(options.clipPostSeconds, defaultClipPostSeconds),
                  "default clip times");
+    check.expect(options.violation && options.violationImage && options.violationClip,
+                 "default violations: stored with images and clip");
     check.expect(near(options.maxStorageGb, defaultMaxStorageGb) &&
                      options.keepDays == defaultKeepDays,
                  "default retention");
@@ -142,8 +145,14 @@ void checkEveryFlag(Check& check) {
                                     "720",
                                     "--rotation",
                                     "180",
+                                    "--violation",
+                                    "false",
                                     "--violation-output-dir",
                                     "/tmp/out",
+                                    "--violation-image",
+                                    "false",
+                                    "--violation-clip",
+                                    "false",
                                     "--video-kbps",
                                     "8000",
                                     "--jpeg-quality",
@@ -154,9 +163,9 @@ void checkEveryFlag(Check& check) {
                                     "0.25",
                                     "--min-confidence",
                                     "0.4",
-                                    "--clip-pre-seconds",
+                                    "--violation-clip-pre-seconds",
                                     "2.5",
-                                    "--clip-post-seconds",
+                                    "--violation-clip-post-seconds",
                                     "7",
                                     "--max-storage-gb",
                                     "1.5",
@@ -197,6 +206,8 @@ void checkEveryFlag(Check& check) {
                  "--width and --height");
     check.expect(options.rotation == Rotation::Rotate180, "--rotation");
     check.expect(options.outputDir == "/tmp/out", "--violation-output-dir");
+    check.expect(!options.violation && !options.violationImage && !options.violationClip,
+                 "--violation, --violation-image and --violation-clip");
     check.expect(options.videoKbps == customKbps, "--video-kbps");
     check.expect(options.jpegQuality == customQuality, "--jpeg-quality");
     check.expect(near(options.holdSeconds, customHold), "--hold-seconds");
@@ -206,7 +217,7 @@ void checkEveryFlag(Check& check) {
                  "--min-confidence");
     check.expect(near(options.clipPreSeconds, customPre) &&
                      near(options.clipPostSeconds, customPost),
-                 "--clip-pre-seconds and --clip-post-seconds");
+                 "--violation-clip-pre-seconds and --violation-clip-post-seconds");
     check.expect(near(options.maxStorageGb, customStorage) && options.keepDays == customDays,
                  "--max-storage-gb and --keep-days");
     check.expect(near(options.minFreeGb, customMinFree) &&
@@ -277,13 +288,36 @@ std::vector<Case> cases() {
         {{"--model", "m", "--min-confidence", "-0.1"}, invalid, "negative confidence"},
         {{"--model", "m", "--min-confidence", "0"}, run, "confidence 0"},
         {{"--model", "m", "--min-confidence", "1"}, run, "confidence 1"},
-        {{"--model", "m", "--clip-pre-seconds", "-1"}, invalid, "negative pre time"},
-        {{"--model", "m", "--clip-pre-seconds", "61"}, invalid, "pre time above the limit"},
-        {{"--model", "m", "--clip-pre-seconds", "60"}, run, "pre time at the limit"},
-        {{"--model", "m", "--clip-pre-seconds", "0", "--clip-post-seconds", "0"}, run, "no clip"},
-        {{"--model", "m", "--clip-post-seconds", "-0.5"}, invalid, "negative post time"},
-        {{"--model", "m", "--clip-post-seconds", "60.5"}, invalid, "post time above the limit"},
-        {{"--model", "m", "--clip-post-seconds", "x"}, invalid, "post time that is not a number"},
+        {{"--model", "m", "--violation-clip-pre-seconds", "-1"}, invalid, "negative pre time"},
+        {{"--model", "m", "--violation-clip-pre-seconds", "61"}, invalid, "pre time above limit"},
+        {{"--model", "m", "--violation-clip-pre-seconds", "60"}, run, "pre time at the limit"},
+        {{"--model", "m", "--violation-clip-pre-seconds", "0", "--violation-clip-post-seconds",
+          "0"},
+         invalid,
+         "a clip that is on with no time"},
+        {{"--model", "m", "--violation-clip-pre-seconds", "0"}, run, "pre 0, post stays 5"},
+        {{"--model", "m", "--violation-clip", "false", "--violation-clip-pre-seconds", "0",
+          "--violation-clip-post-seconds", "0"},
+         run,
+         "no clip: off, with no time"},
+        {{"--model", "m", "--violation", "false", "--violation-clip-pre-seconds", "0",
+          "--violation-clip-post-seconds", "0"},
+         run,
+         "no violations stored: the clip times do not matter"},
+        {{"--model", "m", "--violation-clip-post-seconds", "-0.5"}, invalid, "negative post time"},
+        {{"--model", "m", "--violation-clip-post-seconds", "60.5"}, invalid, "post above limit"},
+        {{"--model", "m", "--violation-clip-post-seconds", "x"}, invalid, "post time not a number"},
+        {{"--model", "m", "--clip-pre-seconds", "5"}, invalid, "the old --clip-pre-seconds"},
+        {{"--model", "m", "--clip-post-seconds", "5"}, invalid, "the old --clip-post-seconds"},
+        {{"--model", "m", "--violation", "true"}, run, "--violation true"},
+        {{"--model", "m", "--violation", "false"}, run, "--violation false"},
+        {{"--model", "m", "--violation", "1"}, invalid, "--violation 1"},
+        {{"--model", "m", "--violation", "TRUE"}, invalid, "--violation in capitals"},
+        {{"--model", "m", "--violation"}, invalid, "--violation without a value"},
+        {{"--model", "m", "--violation-image", "false"}, run, "--violation-image false"},
+        {{"--model", "m", "--violation-image", "yes"}, invalid, "--violation-image yes"},
+        {{"--model", "m", "--violation-clip", "false"}, run, "--violation-clip false"},
+        {{"--model", "m", "--violation-clip", ""}, invalid, "--violation-clip empty"},
         {{"--model", "m", "--max-storage-gb", "0"}, invalid, "storage 0"},
         {{"--model", "m", "--max-storage-gb", "-1"}, invalid, "negative storage"},
         {{"--model", "m", "--max-storage-gb", "100001"}, invalid, "storage above the limit"},
@@ -385,12 +419,13 @@ constexpr const char* everyKeyConfig{R"({
   "encode": {"video_kbps": 8000, "jpeg_quality": 75},
   "rule": {"hold_seconds": 2.5, "gap_seconds": 0.25, "min_confidence": 0.4},
   "violation": {
+    "enabled": false,
     "output_dir": "/tmp/out",
-    "clip_pre_seconds": 2.5,
-    "clip_post_seconds": 7,
     "max_storage_gb": 1.5,
     "keep_days": 7,
-    "min_free_gb": 1
+    "min_free_gb": 1,
+    "image": {"enabled": false},
+    "clip": {"enabled": false, "pre_seconds": 2.5, "post_seconds": 7}
   },
   "archive": {
     "enabled": true,
@@ -424,6 +459,8 @@ void checkConfigEveryKey(Check& check, const fs::path& root) {
                      near(options.holdSeconds, customHold) && near(options.gapSeconds, customGap) &&
                      near(options.minConfidence, customConfidence),
                  "config: encode and rule");
+    check.expect(!options.violation && !options.violationImage && !options.violationClip,
+                 "config: violation.enabled, violation.image and violation.clip");
     check.expect(options.outputDir == "/tmp/out" && near(options.clipPreSeconds, customPre) &&
                      near(options.clipPostSeconds, customPost) &&
                      near(options.maxStorageGb, customStorage) && options.keepDays == customDays &&
@@ -495,6 +532,13 @@ void checkConfigOrder(Check& check, const fs::path& root) {
     check.expect(!parseIn(root.string(), {}).options.archive, "archive false stays off");
     check.expect(parseIn(root.string(), {"--archive", "true"}).options.archive,
                  "--archive true turns on what the file left off");
+    writeDefaultConfig(root, R"({"model": "m", "violation": {"clip": {"enabled": false}}})");
+    check.expect(!parseIn(root.string(), {}).options.violationClip, "clip false from the file");
+    check.expect(parseIn(root.string(), {"--violation-clip", "true"}).options.violationClip,
+                 "--violation-clip true turns on what the file left off");
+    writeDefaultConfig(root, R"({"model": "m", "violation": {"clip": {"post_seconds": 8}}})");
+    check.expect(near(parseIn(root.string(), {}).options.clipPostSeconds, fileClipPost),
+                 "a nested key sets its option");
     writeDefaultConfig(root, R"({"model": "m", "stream": {"enabled": true}})");
     check.expect(parseIn(root.string(), {}).options.stream, "stream true from the file");
     check.expect(!parseIn(root.string(), {"--stream", "false"}).options.stream,
@@ -586,6 +630,20 @@ void checkConfigRefusals(Check& check, const fs::path& root) {
         {R"({"model": "m", "camera": {"--width": 1280}})", "a key with its dashes"},
         {R"({"model": "m", "encode": {"video-kbps": 8000}})", "a key with - instead of _"},
         {R"({"model": "m", "violation": {"dir": "/x"}})", "the old dir key"},
+        {R"({"model": "m", "violation": {"clip_pre_seconds": 5}})", "the old clip_pre_seconds"},
+        {R"({"model": "m", "violation": {"clip_post_seconds": 5}})", "the old clip_post_seconds"},
+        {R"({"model": "m", "violation": {"clip": {"seconds": 5}}})", "an unknown clip key"},
+        {R"({"model": "m", "violation": {"image": {"quality": 90}}})", "an unknown image key"},
+        {R"({"model": "m", "violation": {"video": {"enabled": true}}})", "an unknown subgroup"},
+        {R"({"model": "m", "violation": {"clip": {"enabled": "true"}}})", "text for clip enabled"},
+        {R"({"model": "m", "violation": {"image": {"enabled": 1}}})", "a number for image enabled"},
+        {R"({"model": "m", "violation": {"enabled": "false"}})", "text for violation enabled"},
+        {R"({"model": "m", "violation": {"clip": 5}})", "a number for the clip group"},
+        {R"({"model": "m", "violation": {"clip": {"pre_seconds": 0, "post_seconds": 0}}})",
+         "a clip that is on with no time"},
+        {R"({"model": "m", "violation": {"clip": {"pre_seconds": 61}}})", "clip pre above limit"},
+        {R"({"model": "m", "violation": {"clip": {"a": {"b": 1}}}})", "a third level of groups"},
+        {R"({"model": "m", "clip": {"enabled": true}})", "the clip group outside violation"},
         {R"({"model": "m", "archive": {"dir": "/x"}})", "the old archive dir key"},
         {R"({"model": "m", "record": {"enabled": true}})", "the old record group"},
         {R"({"model": "m", "camera": {"width": 1281}})", "an odd width"},

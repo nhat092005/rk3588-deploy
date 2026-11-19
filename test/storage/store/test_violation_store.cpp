@@ -277,6 +277,34 @@ void checkNames(Check& check, const fs::path& root, const Logger& log) {
     }
 }
 
+// Without the images the violation is the event file alone, and a clip can still join it.
+void checkNoImages(Check& check, const fs::path& root, const Logger& log) {
+    const std::optional<ViolationStore> store{storeAt(root, log)};
+    if (!store) {
+        check.expect(false, "store created");
+        return;
+    }
+    const Images images;
+    ViolationRecord record{recordOf(eventOf(firstTrack, true, false), images, false, wallTime())};
+    record.original = StoredBytes{};
+    const std::optional<std::string> saved{store->save(record)};
+    check.expect(saved.has_value(), "a violation without images is stored");
+    if (!saved) {
+        return;
+    }
+    const fs::path directory{*saved};
+    check.expect(fs::exists(directory / "event.json") && !fs::exists(directory / "original.jpg") &&
+                     !fs::exists(directory / "marked.jpg"),
+                 "only event.json is written");
+    const std::string json{readText(directory / "event.json")};
+    check.expect(contains(json, "\"original\": null") && contains(json, "\"marked\": null"),
+                 "event.json says both images are null");
+    const std::vector<std::uint8_t> clip(clipSize, clipByte);
+    check.expect(store->saveClip(*saved, StoredBytes{clip.data(), clip.size()}) &&
+                     fs::exists(directory / "clip.h265"),
+                 "a clip joins a violation without images");
+}
+
 void checkRefusals(Check& check, const fs::path& root, const Logger& log) {
     const std::optional<ViolationStore> store{storeAt(root, log)};
     if (!store) {
@@ -289,12 +317,13 @@ void checkRefusals(Check& check, const fs::path& root, const Logger& log) {
         recordOf(eventOf(firstTrack, true, false), images, false, quietDay)};
     const ViolationRecord noFlag{
         recordOf(eventOf(firstTrack, false, false), images, false, quietDay)};
-    ViolationRecord empty{record};
-    empty.original = StoredBytes{};
+    ViolationRecord noBytes{record};
+    noBytes.original = StoredBytes{nullptr, originalSize};
     ViolationRecord noSize{record};
     noSize.imageWidth = 0;
-    check.expect(!store->save(noFlag) && !store->save(empty) && !store->save(noSize),
-                 "a record without a kind, an original or an image size is refused");
+    check.expect(!store->save(noFlag) && !store->save(noBytes) && !store->save(noSize),
+                 "a record without a kind, with a null original or without an image size is "
+                 "refused");
     check.expect(!fs::exists(root / "2026-11-17"), "a refused record creates nothing");
 }
 
@@ -353,6 +382,7 @@ int main() {
     withRoot(check, log, checkLayout);
     withRoot(check, log, checkNames);
     withRoot(check, log, checkClip);
+    withRoot(check, log, checkNoImages);
     withRoot(check, log, checkRefusals);
     withRoot(check, log, checkFailure);
     withRoot(check, log, checkMode);
