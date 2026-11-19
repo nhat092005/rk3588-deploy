@@ -39,6 +39,7 @@
 |---|---|
 | `store` | `ViolationStore` writes a violation, `ViolationRetention` keeps the folder within age, size and free space |
 | `clip` | `ClipRecorder`: pre-roll ring and clips of the H.265 stream |
+| `mux` | `Mp4Writer`: H.265 packets into a fragmented MP4 (libavformat of the board's ffmpeg). Cross-compile only |
 | `record` | `PacketQueue`, `SegmentWriter`, `RecordingRetention` (the archive: continuous segments within limits), `SessionWriter` (one file for a run) |
 
 ## `runtime`: the parts of the app

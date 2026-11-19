@@ -45,6 +45,7 @@
 | `violation.clip.enabled` | `--violation-clip` | `true` | `true` or `false` |
 | `violation.clip.downscale.enabled` | `--violation-clip-downscale` | `false` | `true` or `false` |
 | `violation.clip.downscale.height` | `--violation-clip-downscale-height` | 1080 | number, even, 240 to 16384, below the camera |
+| `violation.clip.format` | `--violation-clip-format` | `h265` | `h265` or `mp4` |
 | `violation.clip.pre_seconds` | `--violation-clip-pre-seconds` | 5.0 | number, 0 to 60 |
 | `violation.clip.post_seconds` | `--violation-clip-post-seconds` | 5.0 | number, 0 to 60 (not both 0 while the clip is on) |
 | `archive.enabled` | `--archive` | `false` | `true` or `false` |
@@ -53,11 +54,13 @@
 | `archive.max_storage_gb` | `--archive-max-storage-gb` | 5.0 | number, above 0 to 100000 |
 | `archive.keep_days` | `--archive-keep-days` | 7 | number, 1 to 3650 |
 | `archive.min_free_gb` | `--archive-min-free-gb` | 3.0 | number, 0 to 100000 (0: off) |
+| `archive.format` | `--archive-format` | `h265` | `h265` or `mp4` |
 | `archive.downscale.enabled` | `--archive-downscale` | `false` | `true` or `false` |
 | `archive.downscale.height` | `--archive-downscale-height` | 1080 | number, even, 240 to 16384, below the camera |
 | `session.enabled` | `--session` | `false` | `true` or `false` |
 | `session.output_dir` | `--session-output-dir` | `/data/sessions` | string, must exist |
 | `session.min_free_gb` | `--session-min-free-gb` | 3.0 | number, 0 to 100000 (0: off) |
+| `session.format` | `--session-format` | `h265` | `h265` or `mp4` |
 | `session.downscale.enabled` | `--session-downscale` | `false` | `true` or `false` |
 | `session.downscale.height` | `--session-downscale-height` | 1080 | number, even, 240 to 16384, below the camera |
 | `stream.enabled` | `--stream` | `false` | `true` or `false` |
@@ -69,13 +72,32 @@
 
 | | Folder of one violation |
 |---|---|
-| all on (default) | `event.json`, `original.jpg`, `marked.jpg`, `clip.h265` |
+| all on (default) | `event.json`, `original.jpg`, `marked.jpg`, `clip.h265` (`clip.mp4` with `violation.clip.format` `mp4`) |
 | `violation.image.enabled` false | no JPEG, no copy of the frame, no JPEG encoder |
 | `violation.clip.enabled` false | no `clip.h265`, no clip ring |
 | both false | `event.json` alone (time, kind, box) |
 | `violation.enabled` false | nothing is stored and `output_dir` need not exist. The rule and the boxes in the video go on, so the stream, the archive and the session still show who violates |
 
 `image` and `clip` do nothing while `violation.enabled` is false.
+
+## File format
+
+`format` in `violation.clip`, `archive` and `session` chooses how the video of that output is stored. Same video, same codec (H.265), only the wrapper differs.
+
+| `format` | File | What it is | Plays when cut short |
+|---|---|---|---|
+| `h265` (default) | `.h265` | The encoder's bytes as they are. No time in the file | Yes |
+| `mp4` | `.mp4` | Fragmented MP4: one fragment for each key frame (every second), with the time of every frame | Yes, up to the last complete fragment |
+
+- `mp4` is written fragmented on purpose. A plain MP4 keeps its index at the end of the file, so a power cut or a killed app leaves a file that cannot be opened. A fragmented one has an index for every second. Measured on the board: an app killed with `kill -9` left an MP4 of 270 frames (9 s) that `ffprobe` read and `ffmpeg` decoded without error.
+- Time of an `mp4` file is the time of the frames, so players show the length and let you seek, and a gap (a full queue) would show as a pause (that follows from the times and was not tried with a real gap). A raw `.h265` has no time: ffmpeg assumes 25 fps.
+- What a power cut loses: the frames since the last key frame that reached the disk, about 1 to 2 s in both formats. An `mp4` holds the frames of the current second in memory until the next key frame (a few MB at 4K).
+- The tag is `hvc1`, which QuickTime and Safari accept. The size is read from the stream, so `downscale` needs nothing more.
+- An `mp4` file is about 0.03 % larger than the same `.h265` (measured: 24 373 624 against 24 366 965 bytes in 15 s).
+- Names: `<HHMMSS>.mp4`, `clip.mp4`. A temporary file of the archive is `.<HHMMSS>.mp4.tmp`. The retention of the archive counts and removes `.h265` and `.mp4` files, so the format can change between runs and the folder keeps both.
+- Join the segments of an archive (tried on the board with three segments: 300 frames in, 300 out): `for f in <day>/*.mp4; do echo "file '$f'"; done > list.txt; ffmpeg -f concat -safe 0 -i list.txt -c copy day.mp4`. For `h265`: `cat <day>/*.h265 > day.h265`.
+- A format is checked when the app starts: any other value (`MP4`, `mkv`, empty) stops it with exit code 2 and names the key.
+- Writing `mp4` costs no time in the writer thread (measured, three outputs, 900 frames: encode 5.6 ms for `mp4` and for `h265`, no frame dropped, no gap).
 
 ## Downscale
 
@@ -84,7 +106,7 @@
 | Output | What is scaled |
 |---|---|
 | `violation.image` | `original.jpg` and `marked.jpg`. The box in `event.json` is scaled with them, and `image.width`, `image.height` are the saved size |
-| `violation.clip` | `clip.h265` |
+| `violation.clip` | the clip |
 | `archive` | every segment |
 | `session` | the file of the run |
 
