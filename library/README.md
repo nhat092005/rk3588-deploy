@@ -39,7 +39,7 @@
 |---|---|
 | `store` | `ViolationStore` writes a violation, `ViolationRetention` keeps the folder within age, size and free space |
 | `clip` | `ClipRecorder`: pre-roll ring and clips of the H.265 stream |
-| `record` | `PacketQueue`, `SegmentWriter`, `RecordingRetention`: continuous segments within the same limits |
+| `record` | `PacketQueue`, `SegmentWriter`, `RecordingRetention`: the archive: continuous segments within the same limits |
 
 ## `runtime`: the parts of the app
 

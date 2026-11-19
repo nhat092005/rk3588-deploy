@@ -276,7 +276,7 @@ std::optional<Parts> makeParts(const AppOptions& options, const Logger& log) {
     }
     const CameraFormat& format{capture->camera.format()};
     std::optional<RecordWorker> record;
-    if (options.record) {
+    if (options.archive) {
         record = RecordWorker::create(options, log);
         if (!record) {
             return std::nullopt;
@@ -702,28 +702,28 @@ void warnIfOverCommitted(const AppOptions& options, const EvidenceWorker& eviden
         evidence.storedBytes()};
     std::vector<FolderBudget> sharing{violations};
     if (record != nullptr) {
-        const std::string recordDir{options.recordDir};
-        const FolderBudget recordings{
-            static_cast<std::uint64_t>(options.recordMaxStorageGb * bytesPerGigabyte),
-            defaultRecordMinFreeBytes, record->storedBytes()};
-        if (sameVolume(violationDir, recordDir)) {
-            sharing.push_back(recordings);
+        const std::string archiveDir{options.archiveDir};
+        const FolderBudget archived{
+            static_cast<std::uint64_t>(options.archiveMaxStorageGb * bytesPerGigabyte),
+            defaultArchiveMinFreeBytes, record->storedBytes()};
+        if (sameVolume(violationDir, archiveDir)) {
+            sharing.push_back(archived);
         } else {
-            const std::optional<std::uint64_t> otherFree{volumeFreeBytes(recordDir)};
-            if (otherFree && overCommitted({recordings}, *otherFree)) {
+            const std::optional<std::uint64_t> otherFree{volumeFreeBytes(archiveDir)};
+            if (otherFree && overCommitted({archived}, *otherFree)) {
                 log.warn(
-                    "the recording limits do not fit the free space of ", recordDir, ": ",
-                    Fixed{options.recordMaxStorageGb, gbPrecision}, " GB plus a floor of ",
-                    Fixed{static_cast<double>(defaultRecordMinFreeBytes) * bytesToGb, gbPrecision},
+                    "the archive limits do not fit the free space of ", archiveDir, ": ",
+                    Fixed{options.archiveMaxStorageGb, gbPrecision}, " GB plus a floor of ",
+                    Fixed{static_cast<double>(defaultArchiveMinFreeBytes) * bytesToGb, gbPrecision},
                     " GB, with ", Fixed{static_cast<double>(*otherFree) * bytesToGb, gbPrecision},
-                    " GB free: the oldest recordings will go before the limit is reached");
+                    " GB free: the oldest archive files will go before the limit is reached");
             }
         }
     }
     const std::optional<std::uint64_t> free{volumeFreeBytes(violationDir)};
     if (free && overCommitted(sharing, *free)) {
         log.warn("the storage limits do not fit the free space of ", violationDir, ": ",
-                 sharing.size() > 1 ? "violations plus recordings plus the floor"
+                 sharing.size() > 1 ? "violations plus archive plus the floor"
                                     : "violations plus the floor",
                  " exceed the ", Fixed{static_cast<double>(*free) * bytesToGb, gbPrecision},
                  " GB free: the free-space floor will trim the oldest files before a limit is "

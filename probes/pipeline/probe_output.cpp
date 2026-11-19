@@ -222,10 +222,10 @@ bool run(const Camera& camera, const StopSignal& stop, const Options& options, c
     app.keepDays = options.keepDays;
     std::optional<RecordWorker> record;
     if (options.recordDir != nullptr) {
-        app.record = true;
-        app.recordDir = options.recordDir;
-        app.recordSegmentSeconds = recordSegment;
-        app.recordMaxStorageGb = recordStorageGb;
+        app.archive = true;
+        app.archiveDir = options.recordDir;
+        app.archiveSegmentSeconds = recordSegment;
+        app.archiveMaxStorageGb = recordStorageGb;
         record = RecordWorker::create(app, log);
         if (!record) {
             return false;

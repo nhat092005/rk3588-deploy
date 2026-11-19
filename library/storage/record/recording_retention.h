@@ -13,9 +13,9 @@
 
 /** @brief Defaults of the limits of the recordings. The free-space floor is higher than the one of
  *         the violations (2 GB), so that the video is always trimmed before a violation is. */
-constexpr double defaultRecordMaxStorageGb{5.0};
-constexpr int defaultRecordKeepDays{7};
-constexpr std::uint64_t defaultRecordMinFreeBytes{3'000'000'000};
+constexpr double defaultArchiveMaxStorageGb{5.0};
+constexpr int defaultArchiveKeepDays{7};
+constexpr std::uint64_t defaultArchiveMinFreeBytes{3'000'000'000};
 
 /** @brief The limits to enforce. */
 struct RecordingRetentionConfig {
@@ -24,9 +24,9 @@ struct RecordingRetentionConfig {
     /** Most bytes the segments may use together, above 0. */
     std::uint64_t maxBytes{0};
     /** Segments older than this many days are removed, at least 1. */
-    int keepDays{defaultRecordKeepDays};
+    int keepDays{defaultArchiveKeepDays};
     /** Free bytes that the volume of the root must keep. 0 turns this limit off. */
-    std::uint64_t minFreeBytes{defaultRecordMinFreeBytes};
+    std::uint64_t minFreeBytes{defaultArchiveMinFreeBytes};
 };
 
 /**

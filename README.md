@@ -16,7 +16,7 @@ make check-board          # run every test on the board
 
 # on the board, in ~/rk3588-board/deploy/bin
 ./rk3588_deploy                                # run with resource/config/app_config.json
-./rk3588_deploy --rotation 180 --record true   # flags win over the file
+./rk3588_deploy --rotation 180 --archive true   # flags win over the file
 ./rk3588_deploy --stream true                  # live view, see below
 ```
 
@@ -77,7 +77,7 @@ ffplay -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://<board>:8554
 ```
 
 - Start-up check: a valid address, `ffmpeg` in PATH, a server that answers. If not, the app logs the reason and exits with code 1 before the camera opens. `--stream false` (the default) skips the check.
-- While running: if `ffmpeg` or the server fails, one warning, then the app goes on without the stream. Detection, recording and clips are not affected.
+- While running: if `ffmpeg` or the server fails, one warning, then the app goes on without the stream. Detection, archive and clips are not affected.
 - A slow viewer makes the queue drop packets until the next key frame. The pipeline never waits.
 - A viewer that joins sees the picture at the next key frame, at most 1 second.
 - Only the board may publish, anyone on the network may watch (`sh/stream/mediamtx.yml`, no password).
@@ -97,10 +97,10 @@ A full queue drops the frame and counts it. It never blocks the producer.
 | NPU | Inference, decode, tracker, rule |
 | writer | Upright copy, outlines, labels, H.265, clip ring |
 | evidence | 2 JPEGs, `event.json`, `clip.h265`, retention |
-| recorder | Segment files, only with `--record true` |
+| archive | Segment files, only with `--archive true` |
 | stream | Packets to `ffmpeg`, only with `--stream true` |
 
-Camera, NPU, writer and evidence each have their own big core. The recorder (core 3) and the stream (core 2) use small cores. Why: `tmp/01_research/2026-11-18_thread-layout-stage7b.md`.
+Camera, NPU, writer and evidence each have their own big core. The archive thread (core 3) and the stream (core 2) use small cores. Why: `tmp/01_research/2026-11-18_thread-layout-stage7b.md`.
 
 ## Probes
 
