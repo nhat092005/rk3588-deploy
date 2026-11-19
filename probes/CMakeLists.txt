@@ -51,6 +51,13 @@ add_probe(
 )
 add_probe(
     device
+    probe_fill_heap
+    LIBS
+    dmabuf_lib
+    rga_lib
+)
+add_probe(
+    device
     probe_camera
     LIBS
     camera_lib
