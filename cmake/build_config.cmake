@@ -30,6 +30,8 @@ set(BUILD_TEST_VIDEO_ENCODER ON)
 
 # ---- test/runtime ----
 set(BUILD_TEST_APP_OPTIONS ON)
+set(BUILD_TEST_STREAM_CHECK ON)
+set(BUILD_TEST_STREAM_WORKER ON)
 
 # ---- test/storage ----
 set(BUILD_TEST_CLIP_RECORDER ON)
