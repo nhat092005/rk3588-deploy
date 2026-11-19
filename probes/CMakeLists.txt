@@ -1,4 +1,4 @@
-# Board hardware probes, built with -DBUILD_PROBES=ON.
+# Board hardware probes. Switches: cmake/build_config.cmake.
 #
 # * Cross-compile only: they link the board libraries.
 # * SDK targets rockchip::rknn, rockchip::rga, rockchip::mpp: cmake/RockchipSdk.cmake.
@@ -14,6 +14,19 @@ function(add_probe dir name)
         "LIBS"
         ${ARGN}
     )
+
+    # probe_link -> BUILD_PROBE_LINK
+    string(REGEX REPLACE "^probe_" "" short ${name})
+    string(TOUPPER ${short} switch)
+    set(switch BUILD_PROBE_${switch})
+    if(NOT DEFINED ${switch})
+        message(FATAL_ERROR "${name}: add set(${switch} ON) to cmake/build_config.cmake")
+    endif()
+    if(NOT ${switch})
+        message(STATUS "skip ${name}: ${switch} is OFF")
+        return()
+    endif()
+
     add_executable(${name} ${dir}/${name}.cpp)
     target_link_libraries(${name} PRIVATE logger_lib ${PROBE_LIBS})
     set_target_properties(

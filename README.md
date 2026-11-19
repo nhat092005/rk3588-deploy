@@ -11,6 +11,7 @@ The product side on the Orange Pi 5 (RK3588): the C++ app, board-side Python and
 | `library/` | Reusable libraries in five groups: `base`, `hardware`, `vision`, `storage`, `runtime` (tables below) |
 | `probes/` | Board hardware probes: `device/`, `stage/`, `pipeline/` (table below) |
 | `test/` | One test executable per `.cpp`, in the folder of the library it tests (`test/<group>/<library>/`) |
+| `cmake/` | `build_config.cmake`: one `ON`/`OFF` switch for the app, each test and each probe. Also the toolchain file and the SDK finder |
 | `sh/env/` | Board setup: `setup_board.sh`, `lock_freq.sh`, `start_rknn_server.sh`, `install_udev_rules.sh` (installs `99-rk3588-deploy.rules`), `run_tests.sh` (runs every C++ test on the board) |
 | `sh/record/` | Record the ISP streams to MP4 with the VPU: `rec_4k.sh`, `rec_640x360.sh`, `rec_both.sh` |
 | `tools/check/` | PC scripts that check what a probe or the app wrote (table below) |
@@ -24,9 +25,11 @@ Build on the PC, run on the board. From this directory:
 | Command | Action |
 |---|---|
 | `make` | Cross-compile into `build-arm/` (probes included) |
-| `make TOOLCHAIN= BUILD_DIR=build` | Native build on the PC, no probes |
+| `make TOOLCHAIN= BUILD_DIR=build` | Native build on the PC: the probes and the tests that need the board are skipped (`-- skip ...` lines) |
 | `make format`, `make tidy` | clang-format, clang-tidy |
 | `make help` | All targets and variables |
+
+What to build: set `ON` or `OFF` in `cmake/build_config.cmake` (`BUILD_APP`, `BUILD_TEST_<NAME>`, `BUILD_PROBE_<NAME>`) and run `make`. The file wins over any `-D`. An `OFF` item is not built again, a binary built earlier stays in `build-arm/` until `make distclean`.
 
 Sysroot, copy to the board, board venv: `make sysroot`, `make sync-board`, `make setup-board` from the meta-repo root (see its `README.md`). Binaries land in `~/rk3588-board/deploy/bin/` with the layout of the source tree: `rk3588_deploy`, `probes/<group>/probe_*`, `test/<group>/<library>/test_*`, for example `bin/test/storage/store/test_volume`.
 
@@ -177,3 +180,4 @@ Usage of each probe is in its file header. Exit code 0 and a last log line `PASS
 
 - Every module gets a `Logger` from its caller. There is no global logger.
 - New library: `library/<group>/<name>/` with its `CMakeLists.txt`, `add_subdirectory(<name>)` in `library/<group>/CMakeLists.txt`, link `<name>_lib`. Its tests go in `test/<group>/<name>/`.
+- New test or probe: add its line `set(BUILD_TEST_<NAME> ON)` or `set(BUILD_PROBE_<NAME> ON)` to `cmake/build_config.cmake`, else the configure stops and names the line.

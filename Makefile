@@ -2,7 +2,7 @@
 # The actual build system is CMake; this Makefile only saves typing.
 # Default: cross-compile for the board into build-arm/. The toolchain is a variable:
 #   make                                     cross build (board)
-#   make TOOLCHAIN= BUILD_DIR=build          native build (PC), probes off
+#   make TOOLCHAIN= BUILD_DIR=build          native build (PC), probes and board tests skipped
 #   make BUILD_TYPE=Release
 #   make CMAKE_ARGS=-DRK3588_SYSROOT=<path>
 
@@ -13,7 +13,6 @@ SHELL := /bin/sh
 TOOLCHAIN  ?= cmake/aarch64-toolchain.cmake
 BUILD_DIR  ?= build-arm
 BUILD_TYPE ?= Debug
-PROBES     ?= $(if $(TOOLCHAIN),ON,OFF)
 CMAKE_ARGS ?=
 
 CMAKE        = cmake
@@ -31,7 +30,7 @@ all: build
 
 configure:
 	$(CMAKE) -S . -B $(BUILD_DIR) $(if $(TOOLCHAIN),-DCMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN)) \
-		-DCMAKE_BUILD_TYPE=$(BUILD_TYPE) -DBUILD_PROBES=$(PROBES) $(CMAKE_ARGS)
+		-DCMAKE_BUILD_TYPE=$(BUILD_TYPE) $(CMAKE_ARGS)
 
 build: configure
 	$(CMAKE) --build $(BUILD_DIR)
@@ -65,5 +64,6 @@ help:
 	@echo "  TOOLCHAIN   CMake toolchain file, empty = native (default cmake/aarch64-toolchain.cmake)"
 	@echo "  BUILD_DIR   build directory (default build-arm)"
 	@echo "  BUILD_TYPE  Debug or Release (default Debug)"
-	@echo "  PROBES      ON or OFF (default ON with a toolchain, OFF native)"
 	@echo "  CMAKE_ARGS  extra cmake arguments"
+	@echo ""
+	@echo "What to build (app, each test, each probe): ON/OFF in cmake/build_config.cmake"

@@ -1,0 +1,64 @@
+# ON builds, OFF skips. Edit and run `make`: the file wins over any -D (plain set, no CACHE).
+#
+# Every test and probe needs a line: test_volume -> BUILD_TEST_VOLUME.
+#
+# A native build skips what needs the board, whatever the switch says.
+
+# ---- app ----
+set(BUILD_APP ON) # rk3588_deploy
+
+# ---- test/base ----
+set(BUILD_TEST_CONFIG_JSON ON)
+set(BUILD_TEST_FILE_TEXT ON)
+set(BUILD_TEST_LOGGER ON)
+set(BUILD_TEST_MAILBOX ON)
+set(BUILD_TEST_STAGE_STATS ON)
+
+# ---- test/hardware ----
+set(BUILD_TEST_DMABUF ON)
+set(BUILD_TEST_JPEG_ENCODER ON)
+set(BUILD_TEST_LABEL_TEXT ON)
+set(BUILD_TEST_NPU_INFER ON)
+set(BUILD_TEST_BOX_MAPPER ON)
+set(BUILD_TEST_LETTERBOX_LAYOUT ON)
+set(BUILD_TEST_RGA_LABELS ON)
+set(BUILD_TEST_RGA_LETTERBOX ON)
+set(BUILD_TEST_RGA_OVERLAY ON)
+set(BUILD_TEST_RGA_SNAPSHOT ON)
+set(BUILD_TEST_HEVC_NAL ON)
+set(BUILD_TEST_VIDEO_ENCODER ON)
+
+# ---- test/runtime ----
+set(BUILD_TEST_APP_OPTIONS ON)
+
+# ---- test/storage ----
+set(BUILD_TEST_CLIP_RECORDER ON)
+set(BUILD_TEST_PACKET_QUEUE ON)
+set(BUILD_TEST_RECORDING_RETENTION ON)
+set(BUILD_TEST_SEGMENT_WRITER ON)
+set(BUILD_TEST_VIOLATION_RETENTION ON)
+set(BUILD_TEST_VIOLATION_STORE ON)
+set(BUILD_TEST_VOLUME ON)
+
+# ---- test/vision ----
+set(BUILD_TEST_POSTPROCESS ON)
+set(BUILD_TEST_VIOLATION_RULE ON)
+set(BUILD_TEST_TRACKER ON)
+
+# ---- probes/device ----
+set(BUILD_PROBE_CAMERA ON)
+set(BUILD_PROBE_DMABUF ON)
+set(BUILD_PROBE_INFER ON)
+set(BUILD_PROBE_LINK ON)
+
+# ---- probes/pipeline ----
+set(BUILD_PROBE_DISK_WRITE ON)
+set(BUILD_PROBE_OUTPUT ON)
+set(BUILD_PROBE_THREADS ON)
+
+# ---- probes/stage ----
+set(BUILD_PROBE_H265 ON)
+set(BUILD_PROBE_JPEG ON)
+set(BUILD_PROBE_LETTERBOX ON)
+set(BUILD_PROBE_OVERLAY ON)
+set(BUILD_PROBE_TRACKER ON)

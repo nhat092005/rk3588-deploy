@@ -26,15 +26,20 @@ find_package(Threads REQUIRED)
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(RockchipSdk)
+include(build_config)
 
 # ==============================
 # Subdirectories
 # ==============================
-add_subdirectory(app)
+if(BUILD_APP)
+    add_subdirectory(app)
+endif()
 add_subdirectory(library)
 add_subdirectory(test)
 
-option(BUILD_PROBES "Build board hardware probes (needs rknn_api.h, see probes/CMakeLists.txt)" OFF)
-if(BUILD_PROBES)
+# Probes need the board libraries: cross-compile only.
+if(CMAKE_CROSSCOMPILING)
     add_subdirectory(probes)
+else()
+    message(STATUS "skip probes: they need the board")
 endif()
