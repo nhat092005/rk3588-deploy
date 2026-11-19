@@ -283,9 +283,9 @@ bool OutputBranch::encode(const FrameData& data, double seconds, BranchTimes& ti
     if (ClipRecorder * clips{branch.recorder()}; clips != nullptr) {
         clips->addPacket(packet->data, packet->size, packet->keyFrame, seconds);
     }
-    // A full queue drops the packet and counts it (the recording or the stream then has a break):
-    // the frame threads never wait for the disk or the network.
-    for (PacketQueue* sink : {branch.sinks.recording, branch.sinks.stream}) {
+    // A full queue drops the packet and counts it (the recording, the session or the stream then
+    // has a break): the frame threads never wait for the disk or the network.
+    for (PacketQueue* sink : {branch.sinks.recording, branch.sinks.session, branch.sinks.stream}) {
         if (sink != nullptr) {
             (void)sink->push(packet->data, packet->size, packet->keyFrame, seconds);
         }

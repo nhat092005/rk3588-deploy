@@ -31,6 +31,11 @@
     "keep_days": 7,
     "min_free_gb": 3.0
   },
+  "session": {
+    "enabled": false,
+    "output_dir": "/data/sessions",
+    "min_free_gb": 3.0
+  },
   "stream": {
     "enabled": false,
     "url": "rtsp://127.0.0.1:8554/live"

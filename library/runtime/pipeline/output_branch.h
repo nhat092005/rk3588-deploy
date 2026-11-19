@@ -28,11 +28,12 @@ struct BranchTimes {
 
 /**
  * @brief The queues that every encoded packet is pushed into besides the clip ring: one for the
- *        continuous recording and one for the live stream, each null for none. Each must outlive
- *        the branch.
+ *        continuous recording, one for the session video and one for the live stream, each null
+ *        for none. Each must outlive the branch.
  */
 struct PacketSinks {
     PacketQueue* recording{nullptr};
+    PacketQueue* session{nullptr};
     PacketQueue* stream{nullptr};
 };
 

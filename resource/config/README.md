@@ -17,7 +17,7 @@
 - An unknown key or group, a key in the wrong group, a wrong kind of value or a value out of range stops the app and names the key (`camera.width`).
 - Every flag takes a value, `--archive` and `--stream` too (`--archive false`), so a flag can turn off what the file turned on.
 - `--config` and `--help` have no key. `--help` lists the flags.
-- `min_free_gb` is the free space that the disk of that folder keeps. Below it the oldest files of the folder go. Keep the archive above the violations (3 and 2 by default), so that video goes before evidence. 0 turns it off.
+- `min_free_gb`: free space that the disk of the folder keeps. Below it, violation and archive delete their oldest files, session stops writing. 0 turns it off. The defaults (2, 3, 3 GB) put video before evidence.
 
 ## Keys
 
@@ -45,6 +45,9 @@
 | `archive.max_storage_gb` | `--archive-max-storage-gb` | 5.0 | number, above 0 to 100000 |
 | `archive.keep_days` | `--archive-keep-days` | 7 | number, 1 to 3650 |
 | `archive.min_free_gb` | `--archive-min-free-gb` | 3.0 | number, 0 to 100000 (0: off) |
+| `session.enabled` | `--session` | `false` | `true` or `false` |
+| `session.output_dir` | `--session-output-dir` | `/data/sessions` | string, must exist |
+| `session.min_free_gb` | `--session-min-free-gb` | 3.0 | number, 0 to 100000 (0: off) |
 | `stream.enabled` | `--stream` | `false` | `true` or `false` |
 | `stream.url` | `--stream-url` | `rtsp://127.0.0.1:8554/live` | string, `rtsp://host[:port]/path` |
 | `run.frames` | `--frames` | 0 | number, 0 to 10^12 (0: no limit) |

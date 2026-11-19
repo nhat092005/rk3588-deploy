@@ -8,6 +8,7 @@ if(CMAKE_CROSSCOMPILING)
         evidence_worker.cpp
         output_branch.cpp
         record_worker.cpp
+        session_worker.cpp
     )
     target_include_directories(pipeline_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(

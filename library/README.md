@@ -39,7 +39,7 @@
 |---|---|
 | `store` | `ViolationStore` writes a violation, `ViolationRetention` keeps the folder within age, size and free space |
 | `clip` | `ClipRecorder`: pre-roll ring and clips of the H.265 stream |
-| `record` | `PacketQueue`, `SegmentWriter`, `RecordingRetention`: the archive: continuous segments within the same limits |
+| `record` | `PacketQueue`, `SegmentWriter`, `RecordingRetention` (the archive: continuous segments within limits), `SessionWriter` (one file for a run) |
 
 ## `runtime`: the parts of the app
 
@@ -47,7 +47,7 @@
 |---|---|
 | `options` | `parseOptions`: config file and flags |
 | `stream` | `StreamWorker`, `ChildProcess`: packets to an `ffmpeg` that publishes RTSP |
-| `pipeline` | `Pipeline` and its threads: `OutputBranch`, `EvidenceWorker`, `RecordWorker` |
+| `pipeline` | `Pipeline` and its threads: `OutputBranch`, `EvidenceWorker`, `RecordWorker`, `SessionWorker` |
 
 ## New library
 
