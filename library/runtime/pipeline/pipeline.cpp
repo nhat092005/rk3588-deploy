@@ -21,6 +21,7 @@
 #include "output_branch.h"
 #include "postprocess.h"
 #include "record_worker.h"
+#include "stream_worker.h"
 #include "rga.h"
 #include "stage_stats.h"
 #include "violation_retention.h"
@@ -57,6 +58,9 @@ constexpr int writerCpu{4};
 constexpr int evidenceCpu{7};
 // The recording thread mostly waits for the disk, so a small core will do.
 constexpr int recordCpu{3};
+// The stream thread waits for the network, and the ffmpeg it starts inherits this core: a small
+// one, apart from the five threads above and the recording.
+constexpr int streamCpu{2};
 
 double millisecondsBetween(Clock::time_point start, Clock::time_point end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
@@ -98,6 +102,7 @@ struct Parts {
     ViolationRule rule;
     SourceMapping mapping;
     std::optional<RecordWorker> record;
+    std::optional<StreamWorker> stream;
     OutputBranch output;
     EvidenceWorker evidence;
 };
@@ -112,7 +117,8 @@ struct PipelineState {
           inputs{std::move(parts.inputs)}, npu{std::move(parts.npu)},
           postprocessor{std::move(parts.postprocessor)}, tracker{std::move(parts.tracker)},
           rule{std::move(parts.rule)}, mapping{parts.mapping}, record{std::move(parts.record)},
-          output{std::move(parts.output)}, evidence{std::move(parts.evidence)} {
+          stream{std::move(parts.stream)}, output{std::move(parts.output)},
+          evidence{std::move(parts.evidence)} {
         persons.reserve(maxDetections);
     }
     PipelineState(const PipelineState&) = delete;
@@ -132,8 +138,9 @@ struct PipelineState {
     ByteTracker tracker;
     ViolationRule rule;
     SourceMapping mapping;
-    // Declared before the output branch, which keeps a pointer to its queue.
+    // Declared before the output branch, which keeps a pointer to their queues.
     std::optional<RecordWorker> record;
+    std::optional<StreamWorker> stream;
     OutputBranch output;
     EvidenceWorker evidence;
     std::vector<Detection> persons;
@@ -231,6 +238,23 @@ std::optional<Capture> makeCapture(const AppOptions& options, NpuInfer& npu, con
                    std::move(inputs)};
 }
 
+// The stream is only a view of the video: when it cannot be set up the application goes on
+// without it.
+std::optional<StreamWorker> makeStream(const AppOptions& options, const Logger& log) {
+    if (!options.stream) {
+        return std::nullopt;
+    }
+    StreamConfig config;
+    config.command = ffmpegPushCommand(options.streamUrl);
+    config.kbps = options.videoKbps;
+    config.maxPacketBytes = defaultVideoCapacity;
+    std::optional<StreamWorker> stream{StreamWorker::create(config, log)};
+    if (!stream) {
+        log.warn("the stream is off: it could not be set up");
+    }
+    return stream;
+}
+
 std::optional<Parts> makeParts(const AppOptions& options, const Logger& log) {
     const std::string model{options.modelPath};
     std::optional<NpuInfer> npu{NpuInfer::create(NpuConfig{model.c_str()}, log)};
@@ -256,8 +280,10 @@ std::optional<Parts> makeParts(const AppOptions& options, const Logger& log) {
             return std::nullopt;
         }
     }
-    PacketQueue* recordQueue{record ? &record->queue() : nullptr};
-    std::optional<OutputBranch> output{OutputBranch::create(options, format, recordQueue, log)};
+    std::optional<StreamWorker> stream{makeStream(options, log)};
+    const PacketSinks sinks{record ? &record->queue() : nullptr,
+                            stream ? &stream->queue() : nullptr};
+    std::optional<OutputBranch> output{OutputBranch::create(options, format, sinks, log)};
     if (!output) {
         return std::nullopt;
     }
@@ -279,6 +305,7 @@ std::optional<Parts> makeParts(const AppOptions& options, const Logger& log) {
                  std::move(logic->rule),
                  mapping,
                  std::move(record),
+                 std::move(stream),
                  std::move(*output),
                  std::move(*evidence)};
 }
@@ -644,6 +671,13 @@ void evidenceLoop(PipelineState& state) {
     state.evidence.run(state.output.hub());
 }
 
+void streamLoop(PipelineState& state) {
+    pinCurrentThread(streamCpu, "stream", state.log);
+    if (state.stream) {
+        state.stream->run();
+    }
+}
+
 void recordLoop(PipelineState& state) {
     pinCurrentThread(recordCpu, "record", state.log);
     if (state.record) {
@@ -720,6 +754,10 @@ bool Pipeline::run(const StopSignal& stop) {
     if (pipe.record) {
         recordThread = std::thread{[&pipe] { recordLoop(pipe); }};
     }
+    std::thread streamThread;
+    if (pipe.stream) {
+        streamThread = std::thread{[&pipe] { streamLoop(pipe); }};
+    }
     std::thread writerThread{[&pipe] { writerLoop(pipe); }};
     std::thread npuThread{[&pipe] { npuLoop(pipe); }};
     cameraLoop(pipe, stop);
@@ -728,6 +766,11 @@ bool Pipeline::run(const StopSignal& stop) {
     npuThread.join();
     writerThread.join();
     pipe.output.hub().queue.close();
+    if (pipe.stream) {
+        // A live picture is not worth waiting for: what is still queued is dropped.
+        pipe.stream->stop();
+        streamThread.join();
+    }
     if (pipe.record) {
         pipe.record->queue().close();
         recordThread.join();
@@ -751,6 +794,14 @@ bool Pipeline::run(const StopSignal& stop) {
                       recorded.writeErrors.load(), ", old removed ",
                       recorded.segmentsRemoved.load(), ", queue overflows ", queue.overflowCount(),
                       ", packets dropped ", queue.droppedCount());
+    }
+    if (pipe.stream) {
+        const StreamCounts& streamed{pipe.stream->counts()};
+        const PacketQueue& queue{pipe.stream->queue()};
+        pipe.log.info("stream: packets sent ", streamed.packetsSent.load(), " (",
+                      streamed.bytesSent.load(), " bytes), ",
+                      streamed.failed.load() ? "GIVEN UP" : "ok", ", queue overflows ",
+                      queue.overflowCount(), ", packets dropped ", queue.droppedCount());
     }
     return pipe.camera.close() && !pipe.failed.load();
 }

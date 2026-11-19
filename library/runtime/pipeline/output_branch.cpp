@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <ctime>
+#include <initializer_list>
 #include <utility>
 #include <vector>
 
@@ -36,10 +37,11 @@ std::optional<ClipConfig> clipConfigOf(const AppOptions& options) {
 } // namespace
 
 struct BranchState {
-    BranchState(float confidence, Logger logger, PacketQueue* recording, const RgaSnapshot& copier,
-                FrameSlot target, const RgaSnapshot& imageCopier, RgaOverlay outlines,
-                RgaLabels texts, VideoEncoder encoder, std::unique_ptr<EvidenceHub> shared)
-        : minConfidence{confidence}, log{logger}, recordQueue{recording}, snapshot{copier},
+    BranchState(float confidence, Logger logger, const PacketSinks& outputs,
+                const RgaSnapshot& copier, FrameSlot target, const RgaSnapshot& imageCopier,
+                RgaOverlay outlines, RgaLabels texts, VideoEncoder encoder,
+                std::unique_ptr<EvidenceHub> shared)
+        : minConfidence{confidence}, log{logger}, sinks{outputs}, snapshot{copier},
           slot{std::move(target)}, evidenceCopy{imageCopier}, overlay{std::move(outlines)},
           labels{std::move(texts)}, video{std::move(encoder)}, evidence{std::move(shared)} {
         boxes.reserve(boxCapacity);
@@ -59,7 +61,7 @@ struct BranchState {
 
     float minConfidence;
     Logger log;
-    PacketQueue* recordQueue;
+    PacketSinks sinks;
     RgaSnapshot snapshot;
     FrameSlot slot;
     RgaSnapshot evidenceCopy;
@@ -197,7 +199,7 @@ void BranchState::queueClips() {
 
 std::optional<OutputBranch> OutputBranch::create(const AppOptions& options,
                                                  const CameraFormat& format,
-                                                 PacketQueue* recordQueue, const Logger& log) {
+                                                 const PacketSinks& sinks, const Logger& log) {
     std::optional<RgaSnapshot> snapshot{
         RgaSnapshot::create(SnapshotConfig{ImageSize{format.width, format.height},
                                            format.bytesPerLine, options.rotation},
@@ -234,7 +236,7 @@ std::optional<OutputBranch> OutputBranch::create(const AppOptions& options,
         return std::nullopt;
     }
     auto state{std::make_unique<BranchState>(
-        options.minConfidence, log, recordQueue, *snapshot, std::move(*slot), *imageCopier,
+        options.minConfidence, log, sinks, *snapshot, std::move(*slot), *imageCopier,
         std::move(*overlay), std::move(*labels), std::move(*video), std::move(hub))};
     return std::optional<OutputBranch>{OutputBranch{std::move(state)}};
 }
@@ -281,10 +283,12 @@ bool OutputBranch::encode(const FrameData& data, double seconds, BranchTimes& ti
     if (ClipRecorder * clips{branch.recorder()}; clips != nullptr) {
         clips->addPacket(packet->data, packet->size, packet->keyFrame, seconds);
     }
-    if (branch.recordQueue != nullptr) {
-        // A full queue drops the packet and counts it (the recording then has a break): the frame
-        // threads never wait for the disk.
-        (void)branch.recordQueue->push(packet->data, packet->size, packet->keyFrame, seconds);
+    // A full queue drops the packet and counts it (the recording or the stream then has a break):
+    // the frame threads never wait for the disk or the network.
+    for (PacketQueue* sink : {branch.sinks.recording, branch.sinks.stream}) {
+        if (sink != nullptr) {
+            (void)sink->push(packet->data, packet->size, packet->keyFrame, seconds);
+        }
     }
     if (evidenceSlot != nullptr) {
         branch.dispatchEvidence(*evidenceSlot, eventCount);

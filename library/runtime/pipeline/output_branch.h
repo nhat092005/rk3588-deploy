@@ -26,6 +26,16 @@ struct BranchTimes {
     double evidence{0.0};
 };
 
+/**
+ * @brief The queues that every encoded packet is pushed into besides the clip ring: one for the
+ *        continuous recording and one for the live stream, each null for none. Each must outlive
+ *        the branch.
+ */
+struct PacketSinks {
+    PacketQueue* recording{nullptr};
+    PacketQueue* stream{nullptr};
+};
+
 /** @brief Counts that the output branch keeps since its creation. */
 struct BranchCounts {
     /** Violations that got no evidence slot, or whose evidence did not fit the queue. */
@@ -52,13 +62,12 @@ public:
      * @brief Allocates the snapshot slot, the drawing, the video encoder, and the evidence hub.
      * @param options The command line: video bitrate, clip times, minimum confidence.
      * @param format The camera frame format.
-     * @param recordQueue Where every encoded packet is pushed for the continuous recording, or
-     *        null for no recording. It must outlive the branch.
+     * @param sinks Where every encoded packet is pushed for the recording and the stream.
      * @param log Logger that the object keeps for the rest of its life.
      * @return The branch, or empty on failure, which is logged.
      */
     static std::optional<OutputBranch> create(const AppOptions& options, const CameraFormat& format,
-                                              PacketQueue* recordQueue, const Logger& log);
+                                              const PacketSinks& sinks, const Logger& log);
 
     OutputBranch(const OutputBranch&) = delete;
     OutputBranch& operator=(const OutputBranch&) = delete;
