@@ -26,9 +26,10 @@ struct Remembered {
 } // namespace
 
 struct EvidenceWorker::State {
-    State(Logger logger, ImageSize imageSize, ViolationStore violationStore, JpegEncoder first,
-          JpegEncoder second, ViolationRetention limits)
-        : log{logger}, size{imageSize}, store{std::move(violationStore)},
+    State(Logger logger, ImageSize imageSize, float scale, ViolationStore violationStore,
+          std::optional<JpegEncoder> first, std::optional<JpegEncoder> second,
+          ViolationRetention limits)
+        : log{logger}, size{imageSize}, boxScale{scale}, store{std::move(violationStore)},
           originalJpeg{std::move(first)}, markedJpeg{std::move(second)},
           retention{std::move(limits)} {}
 
@@ -41,10 +42,14 @@ struct EvidenceWorker::State {
     const std::string* find(std::int64_t eventId) const;
 
     Logger log;
+    // The size that the saved event refers to (the images, or the frame without images) and the
+    // factor that takes a box of the frame to it.
     ImageSize size;
+    float boxScale;
     ViolationStore store;
-    JpegEncoder originalJpeg;
-    JpegEncoder markedJpeg;
+    // Empty when the violation images are off.
+    std::optional<JpegEncoder> originalJpeg;
+    std::optional<JpegEncoder> markedJpeg;
     ViolationRetention retention;
     // Whether the last check found room on the volume. The check runs again before a refusal.
     bool roomLeft{true};
@@ -90,7 +95,8 @@ const std::string* EvidenceWorker::State::find(std::int64_t eventId) const {
     return nullptr;
 }
 
-// The two JPEGs of an evidence slot, then one stored violation per event of the frame.
+// The two JPEGs of an evidence slot (none when the images are off), then one stored violation per
+// event of the frame.
 void EvidenceWorker::State::saveImages(EvidenceSlot& slot) {
     if (!hasRoom()) {
         counts.violationsRefused.fetch_add(static_cast<std::int64_t>(slot.eventCount));
@@ -100,21 +106,39 @@ void EvidenceWorker::State::saveImages(EvidenceSlot& slot) {
         return;
     }
     const Clock::time_point start{Clock::now()};
-    const std::optional<std::size_t> original{originalJpeg.encode(slot.original.source)};
-    const std::optional<std::size_t> marked{markedJpeg.encode(slot.marked.source)};
+    // Both stay empty when the images are off.
+    StoredBytes originalBytes;
+    StoredBytes markedBytes;
+    bool withImages{false};
+    bool imagesFailed{false};
+    if (originalJpeg && markedJpeg && slot.original && slot.marked) {
+        withImages = true;
+        const std::optional<std::size_t> original{originalJpeg->encode(slot.original->source)};
+        const std::optional<std::size_t> marked{markedJpeg->encode(slot.marked->source)};
+        if (original && marked) {
+            originalBytes = StoredBytes{originalJpeg->data(), *original};
+            markedBytes = StoredBytes{markedJpeg->data(), *marked};
+        } else {
+            imagesFailed = true;
+        }
+    }
     const double jpegMs{millisecondsSince(start)};
     for (std::size_t index{0}; index < slot.eventCount; ++index) {
-        if (!original || !marked) {
+        if (imagesFailed) {
             counts.violationsFailed.fetch_add(1);
             continue;
         }
         ViolationRecord record;
         record.event = slot.events.at(index);
+        record.event.left *= boxScale;
+        record.event.top *= boxScale;
+        record.event.right *= boxScale;
+        record.event.bottom *= boxScale;
         record.wallTime = slot.wallTime;
         record.imageWidth = size.width;
         record.imageHeight = size.height;
-        record.original = StoredBytes{originalJpeg.data(), *original};
-        record.marked = StoredBytes{markedJpeg.data(), *marked};
+        record.original = originalBytes;
+        record.marked = markedBytes;
         const std::optional<std::string> directory{store.save(record)};
         if (!directory) {
             counts.violationsFailed.fetch_add(1);
@@ -123,8 +147,12 @@ void EvidenceWorker::State::saveImages(EvidenceSlot& slot) {
         remember(slot.eventIds.at(index), *directory);
         retention.add(*directory);
         counts.violationsSaved.fetch_add(1);
-        log.info("violation saved ", *directory, " (jpeg x2 ", Fixed{jpegMs, timePrecision},
-                 " ms)");
+        if (withImages) {
+            log.info("violation saved ", *directory, " (jpeg x2 ", Fixed{jpegMs, timePrecision},
+                     " ms)");
+        } else {
+            log.info("violation saved ", *directory, " (no images)");
+        }
     }
     slot.eventCount = 0;
     slot.busy.store(false, std::memory_order_release);
@@ -151,25 +179,32 @@ void EvidenceWorker::State::saveClip(EvidenceHub& hub, const EvidenceJob& job) {
     }
 }
 
-std::optional<EvidenceWorker> EvidenceWorker::create(const AppOptions& options, ImageSize size,
-                                                     int stride, bool fullRange,
+std::optional<EvidenceWorker> EvidenceWorker::create(const AppOptions& options, ImageSize frame,
+                                                     ImageSize image, int stride, bool fullRange,
                                                      const Logger& log) {
+    // The images are the size the event refers to; without them, the frame.
+    const ImageSize size{options.violationImage ? image : frame};
+    const float boxScale{static_cast<float>(size.height) / static_cast<float>(frame.height)};
     std::optional<ViolationStore> store{
         ViolationStore::create(StoreConfig{options.outputDir, defaultFileMode}, log)};
     const JpegConfig config{size.width,  size.height, stride,
                             size.height, fullRange,   options.jpegQuality};
-    std::optional<JpegEncoder> first{JpegEncoder::create(config, log)};
-    std::optional<JpegEncoder> second{JpegEncoder::create(config, log)};
+    std::optional<JpegEncoder> first;
+    std::optional<JpegEncoder> second;
+    if (options.violationImage) {
+        first = JpegEncoder::create(config, log);
+        second = JpegEncoder::create(config, log);
+    }
     std::optional<ViolationRetention> retention{ViolationRetention::create(
         RetentionConfig{
             options.outputDir, static_cast<std::uint64_t>(options.maxStorageGb * bytesPerGigabyte),
             options.keepDays, static_cast<std::uint64_t>(options.minFreeGb * bytesPerGigabyte)},
         log)};
-    if (!store || !first || !second || !retention) {
+    if (!store || !retention || (options.violationImage && (!first || !second))) {
         return std::nullopt;
     }
-    auto state{std::make_unique<State>(log, size, std::move(*store), std::move(*first),
-                                       std::move(*second), std::move(*retention))};
+    auto state{std::make_unique<State>(log, size, boxScale, std::move(*store), std::move(first),
+                                       std::move(second), std::move(*retention))};
     state->housekeeping(false);
     return std::optional<EvidenceWorker>{EvidenceWorker{std::move(state)}};
 }

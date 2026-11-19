@@ -236,8 +236,9 @@ bool run(const Camera& camera, const StopSignal& stop, const Options& options, c
     if (!output) {
         return false;
     }
-    std::optional<EvidenceWorker> evidence{EvidenceWorker::create(
-        app, output->imageSize(), output->imageStride(), camera.format().fullRange, log)};
+    std::optional<EvidenceWorker> evidence{
+        EvidenceWorker::create(app, output->imageSize(), output->evidenceImageSize(),
+                               output->evidenceImageStride(), camera.format().fullRange, log)};
     std::vector<RgaImage> cameraImages;
     for (std::size_t index{0}; index < camera.bufferCount(); ++index) {
         std::optional<RgaImage> image{RgaImage::import(camera.planeBuffer(index, 0), log)};
@@ -255,7 +256,7 @@ bool run(const Camera& camera, const StopSignal& stop, const Options& options, c
             return false;
         }
     }
-    std::thread evidenceThread{[&] { evidence->run(output->hub()); }};
+    std::thread evidenceThread{[&] { evidence->run(*output->hub()); }};
     std::thread recordThread;
     if (record) {
         recordThread = std::thread{[&] { record->run(); }};
@@ -279,7 +280,7 @@ bool run(const Camera& camera, const StopSignal& stop, const Options& options, c
     }
     output->finish();
     // Gives the evidence thread time to finish the queue, then ends it.
-    output->hub().queue.close();
+    output->hub()->queue.close();
     if (record) {
         record->queue().close();
         recordThread.join();

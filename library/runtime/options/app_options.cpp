@@ -133,6 +133,71 @@ bool setMinConfidence(AppOptions& options, const char* text) {
     return true;
 }
 
+// true or false, nothing else.
+bool parseSwitch(const char* text, bool& value) {
+    const std::string_view word{text};
+    if (word != "true" && word != "false") {
+        return false;
+    }
+    value = word == "true";
+    return true;
+}
+
+bool setViolation(AppOptions& options, const char* text) {
+    return parseSwitch(text, options.violation);
+}
+
+bool setViolationImage(AppOptions& options, const char* text) {
+    return parseSwitch(text, options.violationImage);
+}
+
+bool setViolationClip(AppOptions& options, const char* text) {
+    return parseSwitch(text, options.violationClip);
+}
+
+// A height for a downscaled output: even, from minDownscaleHeight to the largest camera side.
+// Whether it is below the camera is checked when the camera is known.
+bool parseDownscaleHeight(const char* text, int& height) {
+    std::int64_t value{0};
+    if (!parseWhole(text, minDownscaleHeight, maxCameraSide, value) || value % 2 != 0) {
+        return false;
+    }
+    height = static_cast<int>(value);
+    return true;
+}
+
+bool setViolationImageDownscale(AppOptions& options, const char* text) {
+    return parseSwitch(text, options.violationImageDownscale);
+}
+
+bool setViolationImageHeight(AppOptions& options, const char* text) {
+    return parseDownscaleHeight(text, options.violationImageHeight);
+}
+
+bool setViolationClipDownscale(AppOptions& options, const char* text) {
+    return parseSwitch(text, options.violationClipDownscale);
+}
+
+bool setViolationClipHeight(AppOptions& options, const char* text) {
+    return parseDownscaleHeight(text, options.violationClipHeight);
+}
+
+bool setArchiveDownscale(AppOptions& options, const char* text) {
+    return parseSwitch(text, options.archiveDownscale);
+}
+
+bool setArchiveHeight(AppOptions& options, const char* text) {
+    return parseDownscaleHeight(text, options.archiveHeight);
+}
+
+bool setSessionDownscale(AppOptions& options, const char* text) {
+    return parseSwitch(text, options.sessionDownscale);
+}
+
+bool setSessionHeight(AppOptions& options, const char* text) {
+    return parseDownscaleHeight(text, options.sessionHeight);
+}
+
 bool setClipPreSeconds(AppOptions& options, const char* text) {
     double value{0.0};
     if (!parseReal(text, 0.0, maxClipSeconds, value)) {
@@ -298,7 +363,7 @@ struct Flag {
     std::string_view path;
 };
 
-constexpr std::array<Flag, 30> flags{{
+constexpr std::array<Flag, 41> flags{{
     {"--model", setModel, "path of the .rknn model (required unless the config file gives it)",
      JsonKind::String, "model"},
     {"--config", setConfig, "config file, default <app folder>/resource/config/app_config.json",
@@ -319,12 +384,32 @@ constexpr std::array<Flag, 30> flags{{
      JsonKind::Number, "rule.gap_seconds"},
     {"--min-confidence", setMinConfidence, "lowest confidence of a NoHelmet or NoVest box, 0 to 1",
      JsonKind::Number, "rule.min_confidence"},
+    {"--violation", setViolation, "save the violations as files, true or false", JsonKind::Boolean,
+     "violation.enabled"},
     {"--violation-output-dir", setViolationOutputDir, "folder of the violation files",
      JsonKind::String, "violation.output_dir"},
-    {"--clip-pre-seconds", setClipPreSeconds, "seconds of video kept before a violation, 0 to 60",
-     JsonKind::Number, "violation.clip_pre_seconds"},
-    {"--clip-post-seconds", setClipPostSeconds, "seconds of video after a violation, 0 to 60",
-     JsonKind::Number, "violation.clip_post_seconds"},
+    {"--violation-image", setViolationImage, "save the two images of a violation, true or false",
+     JsonKind::Boolean, "violation.image.enabled"},
+    {"--violation-clip", setViolationClip, "save the video clip of a violation, true or false",
+     JsonKind::Boolean, "violation.clip.enabled"},
+    {"--violation-image-downscale", setViolationImageDownscale,
+     "scale the violation images down, true or false", JsonKind::Boolean,
+     "violation.image.downscale.enabled"},
+    {"--violation-image-downscale-height", setViolationImageHeight,
+     "height of the scaled violation images, even, 240 to 16384", JsonKind::Number,
+     "violation.image.downscale.height"},
+    {"--violation-clip-downscale", setViolationClipDownscale,
+     "scale the violation clips down, true or false", JsonKind::Boolean,
+     "violation.clip.downscale.enabled"},
+    {"--violation-clip-downscale-height", setViolationClipHeight,
+     "height of the scaled violation clips, even, 240 to 16384", JsonKind::Number,
+     "violation.clip.downscale.height"},
+    {"--violation-clip-pre-seconds", setClipPreSeconds,
+     "seconds of video kept before a violation, 0 to 60", JsonKind::Number,
+     "violation.clip.pre_seconds"},
+    {"--violation-clip-post-seconds", setClipPostSeconds,
+     "seconds of video after a violation, 0 to 60", JsonKind::Number,
+     "violation.clip.post_seconds"},
     {"--max-storage-gb", setMaxStorageGb, "most gigabytes the violation folder may use",
      JsonKind::Number, "violation.max_storage_gb"},
     {"--keep-days", setKeepDays, "days a violation is kept, 1 to 3650", JsonKind::Number,
@@ -334,6 +419,11 @@ constexpr std::array<Flag, 30> flags{{
      "violation.min_free_gb"},
     {"--archive", setArchive, "archive the video in segment files, true or false",
      JsonKind::Boolean, "archive.enabled"},
+    {"--archive-downscale", setArchiveDownscale, "scale the archive video down, true or false",
+     JsonKind::Boolean, "archive.downscale.enabled"},
+    {"--archive-downscale-height", setArchiveHeight,
+     "height of the scaled archive video, even, 240 to 16384", JsonKind::Number,
+     "archive.downscale.height"},
     {"--archive-output-dir", setArchiveOutputDir, "folder of the archive", JsonKind::String,
      "archive.output_dir"},
     {"--archive-segment-seconds", setArchiveSegmentSeconds, "seconds of video in an archive file",
@@ -347,6 +437,11 @@ constexpr std::array<Flag, 30> flags{{
      "archive.min_free_gb"},
     {"--session", setSession, "write the video of the whole run to one file, true or false",
      JsonKind::Boolean, "session.enabled"},
+    {"--session-downscale", setSessionDownscale, "scale the session video down, true or false",
+     JsonKind::Boolean, "session.downscale.enabled"},
+    {"--session-downscale-height", setSessionHeight,
+     "height of the scaled session video, even, 240 to 16384", JsonKind::Number,
+     "session.downscale.height"},
     {"--session-output-dir", setSessionOutputDir, "folder of the session video", JsonKind::String,
      "session.output_dir"},
     {"--session-min-free-gb", setSessionMinFreeGb,
@@ -389,11 +484,11 @@ const Flag* findPath(std::string_view path) {
     return nullptr;
 }
 
-// Whether some flag lives in the group of that name.
-bool isGroup(std::string_view name) {
-    return std::any_of(flags.begin(), flags.end(), [name](const Flag& flag) {
-        const std::size_t dot{flag.path.find('.')};
-        return dot != std::string_view::npos && flag.path.substr(0, dot) == name;
+// Whether some flag lives in the group of that path ("violation" or "violation.clip").
+bool isGroup(std::string_view path) {
+    return std::any_of(flags.begin(), flags.end(), [path](const Flag& flag) {
+        return flag.path.size() > path.size() && flag.path.substr(0, path.size()) == path &&
+               flag.path[path.size()] == '.';
     });
 }
 
@@ -455,7 +550,7 @@ bool applyConfig(const FileText& file, const std::string& path, std::string_view
     for (JsonEntry& entry : json.entries) {
         const std::string where{entry.group.empty() ? entry.key : entry.group + "." + entry.key};
         if (entry.kind == JsonKind::Object) {
-            if (!isGroup(entry.key)) {
+            if (!isGroup(where)) {
                 log.error(path, ": unknown group ", where);
                 return false;
             }
@@ -550,6 +645,13 @@ ParseResult parseOptions(const std::vector<const char*>& args, std::string_view 
     if (result.options.modelPath.empty()) {
         log.error("a model is required: --model, or \"model\" in the config file");
         logUsage(program, log);
+        return result;
+    }
+    const AppOptions& chosen{result.options};
+    if (chosen.violation && chosen.violationClip && chosen.clipPreSeconds <= 0.0 &&
+        chosen.clipPostSeconds <= 0.0) {
+        log.error("the violation clip is on but pre_seconds and post_seconds are both 0: give one "
+                  "of them a time, or turn the clip off (--violation-clip false)");
         return result;
     }
     result.status = ParseStatus::Run;

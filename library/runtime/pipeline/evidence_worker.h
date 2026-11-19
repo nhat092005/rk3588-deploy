@@ -30,18 +30,20 @@ struct EvidenceCounts {
 
 /**
  * @brief The work of the evidence thread: for each request of the hub's queue, encode the two
- *        images of the violations as JPEGs and store them, or add a finished clip to the directory
- *        of its violation. It also keeps the folder within its limits (ViolationRetention): at
- *        the start, after every stored violation or clip, and once an hour. It runs in the thread
- *        that calls run(); the disk and the JPEG encoder are slow, so the frame threads never wait
- *        for it. Move-only through its members.
+ *        images of the violations as JPEGs (unless --violation-image is false) and store them, or
+ *        add a finished clip to the directory of its violation. It also keeps the folder within its
+ * limits (ViolationRetention): at the start, after every stored violation or clip, and once an
+ * hour. It runs in the thread that calls run(); the disk and the JPEG encoder are slow, so the
+ * frame threads never wait for it. Move-only through its members.
  */
 class EvidenceWorker {
 public:
     /**
-     * @brief Creates the two JPEG encoders and the store.
+     * @brief Creates the two JPEG encoders (none when the images are off) and the store.
      * @param options The command line: output folder, JPEG quality, storage limit and days.
-     * @param size Size of the images in pixels.
+     * @param frame Size in pixels of the frame that the boxes of the events refer to.
+     * @param image Size of the images in pixels (smaller than `frame` when they are scaled down;
+     *        the boxes are scaled with them). Not used when the images are off.
      * @param stride Bytes per line of the images.
      * @param fullRange Whether the images use the full YUV range.
      * @param log Logger that the object keeps for the rest of its life.
@@ -49,8 +51,9 @@ public:
      *         fails, a retention limit is out of range), which is logged. The folder is read and
      *         the old violations that break a limit are removed before it returns.
      */
-    static std::optional<EvidenceWorker> create(const AppOptions& options, ImageSize size,
-                                                int stride, bool fullRange, const Logger& log);
+    static std::optional<EvidenceWorker> create(const AppOptions& options, ImageSize frame,
+                                                ImageSize image, int stride, bool fullRange,
+                                                const Logger& log);
 
     EvidenceWorker(const EvidenceWorker&) = delete;
     EvidenceWorker& operator=(const EvidenceWorker&) = delete;

@@ -103,6 +103,34 @@ void checkGroups(Check& check) {
                  "a group given twice, and a top pair after a group, keep their place");
 }
 
+void checkNestedGroups(Check& check) {
+    const JsonParse parse{
+        parseConfigJson(R"({"v": {"dir": "/d", "clip": {"enabled": true}, "keep": 3}})")};
+    check.expect(parse.ok, "a group inside a group");
+    constexpr std::size_t nestedEntries{5};
+    constexpr std::size_t deepEntries{5};
+    if (!parse.ok || parse.entries.size() != nestedEntries) {
+        check.expect(false, "five entries: two group starts and three pairs");
+        return;
+    }
+    check.expect(parse.entries[0].kind == JsonKind::Object && parse.entries[0].key == "v" &&
+                     parse.entries[0].group.empty(),
+                 "the outer group starts at the top");
+    check.expect(parse.entries[2].kind == JsonKind::Object && parse.entries[2].key == "clip" &&
+                     parse.entries[2].group == "v",
+                 "the inner group starts in the outer one");
+    check.expect(parse.entries[3].group == "v.clip" && parse.entries[3].key == "enabled" &&
+                     parse.entries[3].kind == JsonKind::Boolean,
+                 "a pair of the inner group carries both names");
+    check.expect(parse.entries[4].group == "v" && parse.entries[4].key == "keep",
+                 "a pair after the inner group is back in the outer one");
+    const JsonParse deep{parseConfigJson(R"({"a": {"b": {"c": {"x": 1}}, "y": 2}})")};
+    check.expect(deep.ok && deep.entries.size() == deepEntries &&
+                     deep.entries[3].group == "a.b.c" && deep.entries[3].key == "x" &&
+                     deep.entries[4].group == "a" && deep.entries[4].key == "y",
+                 "a third level carries all three names, and the parent comes back after it");
+}
+
 void checkShapes(Check& check) {
     check.expect(parseConfigJson("{}").ok && parseConfigJson("{}").entries.empty(), "empty object");
     check.expect(parseConfigJson("  \n\t{ }  \n").ok, "spaces around an empty object");
@@ -146,7 +174,7 @@ void checkRefusals(Check& check) {
         {"{\"a\": 'x'}", 6, "a value in single quotes"},
         {"{\"a\": null}", 6, "null"},
         {"{\"a\": [1]}", 6, "an array value"},
-        {"{\"a\": {\"b\": {\"c\": 1}}}", 12, "a group inside a group"},
+        {"{\"a\": {\"b\": {\"c\": {\"d\": {\"e\": 1}}}}}", 24, "a fourth level of groups"},
         {"{\"a\": {\"b\": 1,}}", 14, "a comma before the end of a group"},
         {"{\"a\": {\"b\": 1}", 14, "a group that is not closed"},
         {"{\"a\": {b: 1}}", 7, "a key without quotes in a group"},
@@ -180,6 +208,7 @@ int main() {
     Check check{log};
     checkValues(check);
     checkGroups(check);
+    checkNestedGroups(check);
     checkShapes(check);
     checkRefusals(check);
     if (!check.ok()) {

@@ -41,6 +41,11 @@ constexpr double defaultSessionMinFreeGb{static_cast<double>(defaultSessionMinFr
                                          bytesPerGigabyte};
 /** @brief Largest camera side accepted, in pixels. */
 constexpr int maxCameraSide{16'384};
+/** @brief Smallest height of a downscaled output, and the heights that are set when it is turned
+ *         on without one: images 720, video 1080. */
+constexpr int minDownscaleHeight{240};
+constexpr int defaultImageDownscaleHeight{720};
+constexpr int defaultVideoDownscaleHeight{1080};
 
 /** @brief Where the default config file is, below the folder of the application (see parseOptions).
  */
@@ -60,7 +65,20 @@ struct AppOptions {
     int height{defaultCameraHeight};
     /** How the camera is mounted. */
     Rotation rotation{Rotation::None};
-    /** Folder of the violation files and the video. */
+    /** Violations as files, on unless --violation false is given. Off: the rule and the boxes in
+     *  the video go on, nothing is stored and the folder need not exist. */
+    bool violation{true};
+    /** What a stored violation holds: the two JPEG images and the video clip. Both off leaves
+     *  only event.json. They do nothing while `violation` is off. */
+    bool violationImage{true};
+    bool violationClip{true};
+    /** Smaller images and clips: with the switch on, the file is scaled to this height (the width
+     *  keeps the proportions), and a clip is encoded again at that size. */
+    bool violationImageDownscale{false};
+    int violationImageHeight{defaultImageDownscaleHeight};
+    bool violationClipDownscale{false};
+    int violationClipHeight{defaultVideoDownscaleHeight};
+    /** Folder of the violation files. */
     std::string_view outputDir{defaultViolationRoot};
     /** Video bitrate in kilobits per second and JPEG quality factor. */
     int videoKbps{defaultVideoKbps};
@@ -70,7 +88,8 @@ struct AppOptions {
     double holdSeconds{defaultHoldSeconds};
     double gapSeconds{defaultGapSeconds};
     float minConfidence{defaultViolationConfidence};
-    /** Seconds of video before and after a violation in its clip. Both 0 means no clip. */
+    /** Seconds of video before and after a violation in its clip, at least one above 0 while the
+     *  clip is on. */
     double clipPreSeconds{defaultClipPreSeconds};
     double clipPostSeconds{defaultClipPostSeconds};
     /** The folder of the violations may use this many gigabytes (10^9 bytes) and keeps a
@@ -90,12 +109,18 @@ struct AppOptions {
     /** The same for the volume of the archive. Keep it above the one of the violations, so that
      *  the video is trimmed before a violation is. */
     double archiveMinFreeGb{defaultArchiveMinFreeGb};
+    /** The archive video scaled to this height when the switch is on. */
+    bool archiveDownscale{false};
+    int archiveHeight{defaultVideoDownscaleHeight};
     /** Video of the whole run in one file, off unless --session true is given: the file goes to
      *  sessionDir, is never removed, and stops growing when the volume has less than
      *  sessionMinFreeGb free. */
     bool session{false};
     std::string_view sessionDir{defaultSessionRoot};
     double sessionMinFreeGb{defaultSessionMinFreeGb};
+    /** The session video scaled to this height when the switch is on. */
+    bool sessionDownscale{false};
+    int sessionHeight{defaultVideoDownscaleHeight};
     /** Live stream of the video, off unless --stream true is given: ffmpeg publishes it to
      *  streamUrl (an RTSP server such as MediaMTX must listen there). */
     bool stream{false};
@@ -144,16 +169,22 @@ struct ParseResult {
  * The command line is `--name value` pairs in any order (a flag given twice keeps its last
  * value), `--config <file>` to read another config file (it must exist), and `--help`. The flags:
  * --model, --node, --width, --height, --rotation, --video-kbps, --jpeg-quality, --hold-seconds,
- * --gap-seconds, --min-confidence, --violation-output-dir, --clip-pre-seconds,
- * --clip-post-seconds, --max-storage-gb, --keep-days, --violation-min-free-gb, --archive (true or
- * false),
+ * --gap-seconds, --min-confidence, --violation (true or false), --violation-output-dir,
+ * --violation-image (true or false), --violation-clip (true or false),
+ * --violation-clip-pre-seconds, --violation-clip-post-seconds, --violation-image-downscale (true or
+ * false), --violation-image-downscale-height, --violation-clip-downscale,
+ * --violation-clip-downscale-height, --max-storage-gb, --keep-days, --violation-min-free-gb,
+ * --archive (true or false),
  * --archive-output-dir, --archive-segment-seconds, --archive-max-storage-gb, --archive-keep-days,
- * --archive-min-free-gb, --session (true or false), --session-output-dir,
- * --session-min-free-gb,
+ * --archive-min-free-gb, --archive-downscale, --archive-downscale-height, --session (true or
+ * false), --session-output-dir, --session-min-free-gb, --session-downscale,
+ * --session-downscale-height,
  * --stream (true or false), --stream-url, --frames, --stats-seconds.
  *
  * The config file is one JSON object: `model` at the top and the other options in groups
- * (`camera`, `encode`, `rule`, `violation`, `archive`, `session`, `stream`, `run`), for example
+ * (`camera`, `encode`, `rule`, `violation`, `archive`, `session`, `stream`, `run`; `violation`
+ * holds the groups `image` and `clip`, and these, `archive` and `session` a group `downscale`), for
+ * example
  * `{"model": "m.rknn", "camera": {"width": 3840}, "archive": {"enabled": true}}`. Every key is
  * optional. A key has the kind of value of its flag (`width` is a number, `node` a string,
  * `archive.enabled` true or false) and the same range. The place of each key is in the table of

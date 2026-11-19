@@ -183,7 +183,14 @@ std::optional<RgaSnapshot> RgaSnapshot::create(const SnapshotConfig& config, con
                   config.sourceStride);
         return std::nullopt;
     }
-    const ImageSize rotated{rotatedSize(size, config.rotation)};
+    const ImageSize& wanted{config.target};
+    const bool scaled{wanted.width != 0 || wanted.height != 0};
+    if (scaled && (wanted.width <= 0 || wanted.height <= 0 ||
+                   ((wanted.width | wanted.height) & evenMask) != 0)) {
+        log.error("bad snapshot target: ", wanted.width, "x", wanted.height);
+        return std::nullopt;
+    }
+    const ImageSize rotated{scaled ? wanted : rotatedSize(size, config.rotation)};
     log.info("snapshot ", size.width, "x", size.height, " -> ", rotated.width, "x", rotated.height);
     return std::optional<RgaSnapshot>{RgaSnapshot{config, rotated, log}};
 }

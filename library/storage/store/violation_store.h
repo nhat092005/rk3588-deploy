@@ -37,10 +37,11 @@ struct ViolationRecord {
     ViolationEvent event;
     /** Wall-clock time of the event. It names the day directory and the event directory. */
     std::time_t wallTime{0};
-    /** Width and height in pixels of the images, both above 0. */
+    /** Width and height in pixels of the frame that the box refers to, both above 0, also when
+     *  there is no image. */
     int imageWidth{0};
     int imageHeight{0};
-    /** The frame as the camera saw it, a JPEG. Required. */
+    /** The frame as the camera saw it, a JPEG. Empty (size 0) when there is none. */
     StoredBytes original;
     /** The frame with the boxes drawn, a JPEG. Empty (size 0) when there is none. */
     StoredBytes marked;
@@ -48,9 +49,10 @@ struct ViolationRecord {
 
 /**
  * @brief Writes a violation to disk, one directory per violation:
- *        `<root>/<YYYY-MM-DD>/<HHMMSS>_id<track>_<kind>/` with `original.jpg`, `marked.jpg` (when
- *        given) and `event.json`. The kind is NoHelmet, NoVest or NoHelmetNoVest. A second
- *        violation with the same name gets the suffix `_2`, `_3` and so on.
+ *        `<root>/<YYYY-MM-DD>/<HHMMSS>_id<track>_<kind>/` with `original.jpg` and `marked.jpg`
+ *        (when given) and `event.json`, which names the files that exist. The kind is NoHelmet,
+ * NoVest or NoHelmetNoVest. A second violation with the same name gets the suffix `_2`, `_3` and so
+ * on.
  *
  * The directory appears whole: the files are written into a hidden temporary directory, flushed
  * to disk, and the directory is renamed at the end, so a power cut leaves either nothing or a

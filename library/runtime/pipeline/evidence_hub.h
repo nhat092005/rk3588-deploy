@@ -40,13 +40,16 @@ struct EvidenceJob {
     std::size_t size{0};
 };
 
-/** @brief The two images of the violations of one frame and who they are. */
+/**
+ * @brief The violations of one frame and who they are, with the two images when the images are
+ *        on (both empty otherwise, and the slot only carries the events).
+ */
 struct EvidenceSlot {
-    EvidenceSlot(FrameSlot first, FrameSlot second)
+    EvidenceSlot(std::optional<FrameSlot> first, std::optional<FrameSlot> second)
         : original{std::move(first)}, marked{std::move(second)} {}
 
-    FrameSlot original;
-    FrameSlot marked;
+    std::optional<FrameSlot> original;
+    std::optional<FrameSlot> marked;
     std::array<ViolationEvent, maxEventsPerFrame> events{};
     std::array<std::int64_t, maxEventsPerFrame> eventIds{};
     std::size_t eventCount{0};
@@ -74,13 +77,15 @@ struct EvidenceHub {
 struct EvidenceConfig {
     /** Bytes of one image: the stride x height x 3 / 2 of the upright NV12 frame. */
     std::size_t imageBytes{0};
+    /** Whether the slots hold the two images. Off: no image buffer is allocated. */
+    bool images{true};
     /** The clip settings, or empty for no clips. */
     std::optional<ClipConfig> clip;
 };
 
 /**
- * @brief Allocates the evidence slots (in the low heap, the RGA draws and copies there) and the
- *        clip recorder.
+ * @brief Allocates the evidence slots (in the low heap, the RGA draws and copies there, unless the
+ *        images are off) and the clip recorder.
  * @return The hub, or empty on failure, which is logged.
  */
 std::unique_ptr<EvidenceHub> makeEvidenceHub(const EvidenceConfig& config, const Logger& log);

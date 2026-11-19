@@ -1,7 +1,12 @@
 #include "config_json.h"
 
+#include <algorithm>
+#include <cstddef>
+
 namespace {
 constexpr unsigned char firstPrintable{0x20};
+// The name of a group at the third level has two dots: `a.b.c`.
+constexpr std::ptrdiff_t maxGroupDots{2};
 
 bool isSpace(char letter) {
     return letter == ' ' || letter == '\t' || letter == '\n' || letter == '\r';
@@ -69,14 +74,7 @@ private:
             }
             skipSpace();
             if (more() && peek() == '{') {
-                if (!group.empty()) {
-                    return refuse("a group inside a group");
-                }
-                ++at;
-                entry.kind = JsonKind::Object;
-                const std::string name{entry.key};
-                result.entries.push_back(std::move(entry));
-                if (!readMembers(name)) {
+                if (!readGroup(std::move(entry), group)) {
                     return false;
                 }
             } else {
@@ -94,6 +92,19 @@ private:
             }
             return refuse("expected , or }");
         }
+    }
+
+    // A group named by `entry`, inside the object `parent`: its entry, then its members. Three
+    // levels at most (`a.b.c`): a fourth one is refused.
+    bool readGroup(JsonEntry entry, const std::string& parent) {
+        if (std::count(parent.begin(), parent.end(), '.') >= maxGroupDots) {
+            return refuse("a group nested more than three levels deep");
+        }
+        ++at;
+        entry.kind = JsonKind::Object;
+        const std::string name{parent.empty() ? entry.key : parent + "." + entry.key};
+        result.entries.push_back(std::move(entry));
+        return readMembers(name);
     }
 
     bool more() const {
