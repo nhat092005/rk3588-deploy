@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -23,6 +24,7 @@
 
 #include "logger.h"
 #include "session_writer.h"
+#include "video_file.h"
 
 namespace {
 namespace fs = std::filesystem;
@@ -147,6 +149,67 @@ std::string readText(const fs::path& path) {
 
 std::string filled(std::uint8_t value) {
     return std::string(packetSize, static_cast<char>(value));
+}
+
+// A format that writes two characters for a packet (its value and k or d), F for a flush and E for
+// the end: it shows what SessionWriter hands to the writer of a format, and in which order.
+class MarkWriter final : public VideoFileWriter {
+public:
+    MarkWriter(int descriptor, const Logger& logger) : file{descriptor}, log{logger} {}
+
+    bool write(const std::uint8_t* data, std::size_t /*size*/, bool keyFrame,
+               double /*seconds*/) override {
+        const std::string marks{static_cast<char>('0' + data[0]), keyFrame ? 'k' : 'd'};
+        return put(marks);
+    }
+    bool flush() override {
+        return put("F");
+    }
+    bool finish() override {
+        return put("E");
+    }
+
+private:
+    bool put(const std::string& text) {
+        return writeBytes(file, reinterpret_cast<const std::uint8_t*>(text.data()), text.size(),
+                          log);
+    }
+
+    int file;
+    Logger log;
+};
+
+std::unique_ptr<VideoFileWriter> makeMarkWriter(int descriptor, const Logger& log) {
+    return std::make_unique<MarkWriter>(descriptor, log);
+}
+
+void checkFormat(Check& check, const fs::path& root, const Logger& log) {
+    const std::string text{root.string()};
+    std::optional<SessionWriter> writer{
+        SessionWriter::create(SessionConfig{text, floorBytes, defaultFileMode, &freeNow,
+                                            VideoOutput{".mp4", &makeMarkWriter}},
+                              log)};
+    check.expect(writer.has_value(), "a writer of another format is created");
+    if (!writer) {
+        return;
+    }
+    const std::time_t start{at(Hms{hourOfFirst, minuteOfFirst, 0})};
+    check.expect(writer->consume(packet(packetB, true, timeFirst), start) &&
+                     writer->consume(packet(packetC, false, timeSecond), start) &&
+                     writer->consume(packet(packetD, true, timeThird), start + 1) &&
+                     writer->consume(packet(packetE, false, timeFourth), start + 2),
+                 "four packets");
+    writer->finish();
+    const fs::path file{root / "2026-11-18" / "093000.mp4"};
+    check.expect(writer->path() == file.string(), "the name has the suffix of the format");
+    // The flush comes after the key frame that closes a group, not before it, and not at the first.
+    check.expect(readText(file) == "2k3d4kF5dE", "the writer gets the packets, a flush after each "
+                                                 "later key frame, and the end");
+    check.expect(!fs::exists(root / "2026-11-18" / "093000.h265"), "no .h265 file");
+    check.expect(!SessionWriter::create(SessionConfig{text, floorBytes, defaultFileMode, &freeNow,
+                                                      VideoOutput{".mp4", nullptr}},
+                                        log),
+                 "a format without a writer is refused");
 }
 
 void checkFile(Check& check, const fs::path& root, const Logger& log) {
@@ -345,6 +408,7 @@ int main() {
     tzset();
     Check check{report};
     withRoot(check, log, checkFile);
+    withRoot(check, log, checkFormat);
     withRoot(check, log, checkGap);
     withRoot(check, log, checkNames);
     withRoot(check, log, checkFloor);

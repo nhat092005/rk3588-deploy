@@ -21,7 +21,6 @@ constexpr int maxNameAttempts{100};
 constexpr unsigned readBits{0444U};
 constexpr unsigned executeShift{2U};
 constexpr double bytesPerGb{1e9};
-constexpr const char* sessionSuffix{".h265"};
 
 unsigned directoryMode(unsigned fileMode) noexcept {
     return fileMode | ((fileMode & readBits) >> executeShift);
@@ -47,29 +46,12 @@ void syncDirectory(const std::string& path, const Logger& log) noexcept {
         log.warn("fsync ", path, ": ", lastError());
     }
 }
-
-// Writes every byte. false on an error (the cause is logged).
-bool writeAll(const FileDescriptor& file, const std::vector<std::uint8_t>& bytes,
-              const Logger& log) noexcept {
-    std::size_t done{0};
-    while (done < bytes.size()) {
-        const ssize_t count{::write(file.get(), bytes.data() + done, bytes.size() - done)};
-        if (count < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            log.error("write: ", lastError());
-            return false;
-        }
-        done += static_cast<std::size_t>(count);
-    }
-    return true;
-}
 } // namespace
 
 SessionWriter::SessionWriter(const SessionConfig& config, Logger logger)
     : root{config.root}, minFreeBytes{config.minFreeBytes}, fileMode{config.fileMode},
-      freeSpace{config.freeSpace != nullptr ? config.freeSpace : &volumeFreeBytes}, log{logger} {}
+      freeSpace{config.freeSpace != nullptr ? config.freeSpace : &volumeFreeBytes},
+      output{config.output}, log{logger} {}
 
 std::optional<SessionWriter> SessionWriter::create(const SessionConfig& config, const Logger& log) {
     const std::string root{config.root};
@@ -84,6 +66,10 @@ std::optional<SessionWriter> SessionWriter::create(const SessionConfig& config, 
     }
     if (::access(root.c_str(), W_OK | X_OK) != 0) {
         log.error("session root ", root, " is not writable: ", lastError());
+        return std::nullopt;
+    }
+    if (config.output.open == nullptr) {
+        log.error("session video: no writer for the format ", config.output.suffix);
         return std::nullopt;
     }
     SessionWriter writer{config, log};
@@ -130,7 +116,7 @@ bool SessionWriter::open(std::time_t wallNow) {
         std::string candidate{dayPath};
         candidate += '/';
         candidate += name;
-        candidate += sessionSuffix;
+        candidate += output.suffix;
         if (exists(candidate)) {
             continue;
         }
@@ -143,6 +129,13 @@ bool SessionWriter::open(std::time_t wallNow) {
         if (::fchmod(file.get(), fileMode) != 0) {
             log.warn("fchmod ", candidate, ": ", lastError());
         }
+        video = output.open(file.get(), log);
+        if (!video) {
+            const std::error_code ignored{file.close()};
+            (void)ignored;
+            (void)::unlink(candidate.c_str());
+            return false;
+        }
         filePath = candidate;
         syncDirectory(dayPath, log);
         log.info("session video ", filePath);
@@ -154,6 +147,10 @@ bool SessionWriter::open(std::time_t wallNow) {
 
 // Pushes what was written to the disk. false when the disk refuses.
 bool SessionWriter::flush() {
+    if (!video->flush()) {
+        log.error("writing ", filePath);
+        return false;
+    }
     if (::fsync(file.get()) != 0) {
         log.error("fsync ", filePath, ": ", lastError());
         return false;
@@ -166,7 +163,11 @@ void SessionWriter::close() {
     if (!file.valid()) {
         return;
     }
-    (void)flush();
+    if (!video->finish()) {
+        log.error("finishing ", filePath);
+    }
+    (void)::fsync(file.get());
+    video.reset();
     const std::error_code closing{file.close()};
     if (closing) {
         log.error("closing ", filePath, ": ", closing.message());
@@ -190,6 +191,7 @@ bool SessionWriter::consume(const QueuedPacket& packet, std::time_t wallNow) {
     if (isStopped) {
         return true;
     }
+    bool flushAfter{false};
     if (!file.valid()) {
         if (!packet.keyFrame) {
             ++skipped;
@@ -207,21 +209,23 @@ bool SessionWriter::consume(const QueuedPacket& packet, std::time_t wallNow) {
         if (packet.afterGap) {
             ++gaps;
         }
-        // The frames since the last key frame go to the disk before this one is written.
-        if (!flush()) {
-            stop("the disk refused to flush the file");
-            return false;
-        }
         if (!hasRoom()) {
             stop("the free space of the volume fell below the floor");
             return true;
         }
+        flushAfter = true;
     }
-    if (!writeAll(file, packet.bytes, log)) {
+    if (!video->write(packet.bytes.data(), packet.bytes.size(), packet.keyFrame, packet.seconds)) {
         stop("the disk refused a write");
         return false;
     }
     written += packet.bytes.size();
+    // The frames before this key frame go to the disk now: the key frame closes the group of the
+    // frames that an MP4 keeps, and the raw stream has it with them.
+    if (flushAfter && !flush()) {
+        stop("the disk refused to flush the file");
+        return false;
+    }
     return true;
 }
 

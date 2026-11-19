@@ -3,6 +3,7 @@
 #include <array>
 #include <cerrno>
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -21,8 +22,8 @@ constexpr unsigned executeShift{2U};
 constexpr const char* originalName{"original.jpg"};
 constexpr const char* markedName{"marked.jpg"};
 constexpr const char* eventName{"event.json"};
-constexpr const char* clipName{"clip.h265"};
-constexpr const char* clipTempName{".clip.h265.tmp"};
+constexpr const char* clipStem{"clip"};
+constexpr const char* tempEnding{".tmp"};
 
 // Directory permissions for a file mode: execute wherever there is read.
 unsigned directoryMode(unsigned fileMode) noexcept {
@@ -111,6 +112,52 @@ void syncDirectory(const std::string& path, const Logger& log) noexcept {
     }
 }
 
+// Writes the packets of a clip through a writer of the format, flushes the file to disk, sets the
+// permissions.
+bool writeClip(const std::string& path, const StoredClip& clip, const VideoOutput& output,
+               unsigned mode, const Logger& log) noexcept {
+    FileDescriptor file{::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, mode), log};
+    if (!file.valid()) {
+        log.error("open ", path, ": ", lastError());
+        return false;
+    }
+    const std::unique_ptr<VideoFileWriter> writer{output.open(file.get(), log)};
+    if (!writer) {
+        return false;
+    }
+    std::size_t offset{0};
+    for (std::size_t index{0}; index < clip.packetCount; ++index) {
+        const PacketInfo& packet{clip.packets[index]};
+        if (!writer->write(clip.data + offset, packet.size, packet.keyFrame, packet.seconds)) {
+            log.error("write ", path);
+            return false;
+        }
+        offset += packet.size;
+    }
+    if (!writer->finish() || ::fchmod(file.get(), mode) != 0 || ::fsync(file.get()) != 0) {
+        log.error("finish, fchmod or fsync ", path, ": ", lastError());
+        return false;
+    }
+    const std::error_code closed{file.close()};
+    if (closed) {
+        log.error("close ", path, ": ", closed);
+        return false;
+    }
+    return true;
+}
+
+// Whether the packets of a clip are there and make up exactly its bytes.
+bool packetsAddUp(const StoredClip& clip) noexcept {
+    if (clip.packets == nullptr || clip.packetCount == 0 || !clip.packets[0].keyFrame) {
+        return false;
+    }
+    std::size_t total{0};
+    for (std::size_t index{0}; index < clip.packetCount; ++index) {
+        total += clip.packets[index].size;
+    }
+    return total == clip.size;
+}
+
 // The content of event.json.
 std::string eventJson(const ViolationRecord& record) {
     const ViolationEvent& event{record.event};
@@ -153,6 +200,10 @@ void discard(const std::string& directory) noexcept {
 std::optional<ViolationStore> ViolationStore::create(const StoreConfig& config, const Logger& log) {
     const std::string root{config.root};
     struct stat info {};
+    if (config.clipOutput.open == nullptr) {
+        log.error("violation clip: no writer for the format ", config.clipOutput.suffix);
+        return std::nullopt;
+    }
     if (::stat(root.c_str(), &info) != 0) {
         log.error("violation root ", root, ": ", lastError());
         return std::nullopt;
@@ -166,7 +217,8 @@ std::optional<ViolationStore> ViolationStore::create(const StoreConfig& config, 
         return std::nullopt;
     }
     log.info("violation root ", root);
-    return std::optional<ViolationStore>{ViolationStore{root, config.fileMode, log}};
+    return std::optional<ViolationStore>{
+        ViolationStore{root, config.fileMode, config.clipOutput, log}};
 }
 
 std::optional<std::string> ViolationStore::save(const ViolationRecord& record) const noexcept {
@@ -233,20 +285,24 @@ std::optional<std::string> ViolationStore::save(const ViolationRecord& record) c
     return finalPath;
 }
 
-bool ViolationStore::saveClip(const std::string& directory,
-                              const StoredBytes& clip) const noexcept {
+bool ViolationStore::saveClip(const std::string& directory, const StoredClip& clip) const noexcept {
     if (clip.size == 0 || clip.data == nullptr) {
         log.error("empty clip for ", directory);
         return false;
     }
-    const std::string finalPath{directory + "/" + clipName};
-    const std::string tempPath{directory + "/" + clipTempName};
+    if (!packetsAddUp(clip)) {
+        log.error("the packets of the clip for ", directory, " do not add up to its bytes");
+        return false;
+    }
+    const std::string suffix{clipOutput.suffix};
+    const std::string finalPath{directory + "/" + clipStem + suffix};
+    const std::string tempPath{directory + "/." + clipStem + suffix + tempEnding};
     if (exists(finalPath)) {
         log.error(finalPath, " exists already");
         return false;
     }
     (void)::unlink(tempPath.c_str());
-    if (!writeFile(tempPath, clip, fileMode, log)) {
+    if (!writeClip(tempPath, clip, clipOutput, fileMode, log)) {
         (void)::unlink(tempPath.c_str());
         return false;
     }

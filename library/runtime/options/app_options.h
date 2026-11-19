@@ -78,6 +78,8 @@ struct AppOptions {
     int violationImageHeight{defaultImageDownscaleHeight};
     bool violationClipDownscale{false};
     int violationClipHeight{defaultVideoDownscaleHeight};
+    /** How the three kinds of video file are stored: raw H.265 or fragmented MP4. */
+    VideoFormat violationClipFormat{VideoFormat::H265};
     /** Folder of the violation files. */
     std::string_view outputDir{defaultViolationRoot};
     /** Video bitrate in kilobits per second and JPEG quality factor. */
@@ -112,6 +114,7 @@ struct AppOptions {
     /** The archive video scaled to this height when the switch is on. */
     bool archiveDownscale{false};
     int archiveHeight{defaultVideoDownscaleHeight};
+    VideoFormat archiveFormat{VideoFormat::H265};
     /** Video of the whole run in one file, off unless --session true is given: the file goes to
      *  sessionDir, is never removed, and stops growing when the volume has less than
      *  sessionMinFreeGb free. */
@@ -121,6 +124,7 @@ struct AppOptions {
     /** The session video scaled to this height when the switch is on. */
     bool sessionDownscale{false};
     int sessionHeight{defaultVideoDownscaleHeight};
+    VideoFormat sessionFormat{VideoFormat::H265};
     /** Live stream of the video, off unless --stream true is given: ffmpeg publishes it to
      *  streamUrl (an RTSP server such as MediaMTX must listen there). */
     bool stream{false};
@@ -173,12 +177,13 @@ struct ParseResult {
  * --violation-image (true or false), --violation-clip (true or false),
  * --violation-clip-pre-seconds, --violation-clip-post-seconds, --violation-image-downscale (true or
  * false), --violation-image-downscale-height, --violation-clip-downscale,
- * --violation-clip-downscale-height, --max-storage-gb, --keep-days, --violation-min-free-gb,
+ * --violation-clip-downscale-height, --violation-clip-format (h265 or mp4), --max-storage-gb,
+ * --keep-days, --violation-min-free-gb,
  * --archive (true or false),
  * --archive-output-dir, --archive-segment-seconds, --archive-max-storage-gb, --archive-keep-days,
- * --archive-min-free-gb, --archive-downscale, --archive-downscale-height, --session (true or
- * false), --session-output-dir, --session-min-free-gb, --session-downscale,
- * --session-downscale-height,
+ * --archive-min-free-gb, --archive-downscale, --archive-downscale-height, --archive-format,
+ * --session (true or false), --session-output-dir, --session-min-free-gb, --session-downscale,
+ * --session-downscale-height, --session-format,
  * --stream (true or false), --stream-url, --frames, --stats-seconds.
  *
  * The config file is one JSON object: `model` at the top and the other options in groups

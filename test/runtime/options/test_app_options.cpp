@@ -127,6 +127,10 @@ void checkDefaults(Check& check) {
                      options.archiveHeight == defaultVideoDownscaleHeight &&
                      options.sessionHeight == defaultVideoDownscaleHeight,
                  "default heights: 720 for images, 1080 for video");
+    check.expect(options.violationClipFormat == VideoFormat::H265 &&
+                     options.archiveFormat == VideoFormat::H265 &&
+                     options.sessionFormat == VideoFormat::H265,
+                 "default format: h265 for clip, archive and session");
     check.expect(near(options.maxStorageGb, defaultMaxStorageGb) &&
                      options.keepDays == defaultKeepDays,
                  "default retention");
@@ -182,6 +186,12 @@ void checkEveryFlag(Check& check) {
                                     "true",
                                     "--session-downscale-height",
                                     "720",
+                                    "--violation-clip-format",
+                                    "mp4",
+                                    "--archive-format",
+                                    "mp4",
+                                    "--session-format",
+                                    "mp4",
                                     "--video-kbps",
                                     "8000",
                                     "--jpeg-quality",
@@ -242,6 +252,10 @@ void checkEveryFlag(Check& check) {
                      options.archiveDownscale && options.archiveHeight == customArchiveH &&
                      options.sessionDownscale && options.sessionHeight == customSessionH,
                  "the four downscale switches and heights");
+    check.expect(options.violationClipFormat == VideoFormat::Mp4 &&
+                     options.archiveFormat == VideoFormat::Mp4 &&
+                     options.sessionFormat == VideoFormat::Mp4,
+                 "the three formats");
     check.expect(options.videoKbps == customKbps, "--video-kbps");
     check.expect(options.jpegQuality == customQuality, "--jpeg-quality");
     check.expect(near(options.holdSeconds, customHold), "--hold-seconds");
@@ -352,6 +366,14 @@ std::vector<Case> cases() {
         {{"--model", "m", "--violation-image", "yes"}, invalid, "--violation-image yes"},
         {{"--model", "m", "--violation-clip", "false"}, run, "--violation-clip false"},
         {{"--model", "m", "--violation-clip", ""}, invalid, "--violation-clip empty"},
+        {{"--model", "m", "--session-format", "mp4"}, run, "--session-format mp4"},
+        {{"--model", "m", "--session-format", "h265"}, run, "--session-format h265"},
+        {{"--model", "m", "--archive-format", "mp4"}, run, "--archive-format mp4"},
+        {{"--model", "m", "--violation-clip-format", "mp4"}, run, "--violation-clip-format mp4"},
+        {{"--model", "m", "--session-format", "MP4"}, invalid, "a format in capitals"},
+        {{"--model", "m", "--session-format", "mkv"}, invalid, "a format that does not exist"},
+        {{"--model", "m", "--archive-format", ""}, invalid, "an empty format"},
+        {{"--model", "m", "--violation-clip-format", ".mp4"}, invalid, "a format with a dot"},
         {{"--model", "m", "--archive-downscale", "true"}, run, "--archive-downscale true"},
         {{"--model", "m", "--archive-downscale", "1"}, invalid, "--archive-downscale 1"},
         {{"--model", "m", "--session-downscale", "TRUE"}, invalid, "--session-downscale capitals"},
@@ -482,6 +504,7 @@ constexpr const char* everyKeyConfig{R"({
       "enabled": false,
       "pre_seconds": 2.5,
       "post_seconds": 7,
+      "format": "mp4",
       "downscale": {"enabled": true, "height": 480}
     }
   },
@@ -492,12 +515,14 @@ constexpr const char* everyKeyConfig{R"({
     "max_storage_gb": 2.5,
     "keep_days": 3,
     "min_free_gb": 4.5,
+    "format": "mp4",
     "downscale": {"enabled": true, "height": 360}
   },
   "session": {
     "enabled": true,
     "output_dir": "/tmp/sess",
     "min_free_gb": 0.5,
+    "format": "mp4",
     "downscale": {"enabled": true, "height": 720}
   },
   "stream": {"enabled": true, "url": "rtsp://10.0.0.2:8554/cam"},
@@ -530,6 +555,10 @@ void checkConfigEveryKey(Check& check, const fs::path& root) {
                      options.archiveDownscale && options.archiveHeight == customArchiveH &&
                      options.sessionDownscale && options.sessionHeight == customSessionH,
                  "config: the downscale groups of image, clip, archive and session");
+    check.expect(options.violationClipFormat == VideoFormat::Mp4 &&
+                     options.archiveFormat == VideoFormat::Mp4 &&
+                     options.sessionFormat == VideoFormat::Mp4,
+                 "config: the format of clip, archive and session");
     check.expect(options.outputDir == "/tmp/out" && near(options.clipPreSeconds, customPre) &&
                      near(options.clipPostSeconds, customPost) &&
                      near(options.maxStorageGb, customStorage) && options.keepDays == customDays &&
@@ -731,6 +760,13 @@ void checkConfigRefusals(Check& check, const fs::path& root) {
         {R"({"model": "m", "archive": {"downscale": {"height": 0}}})", "archive height 0"},
         {R"({"model": "m", "session": {"downscale": {"height": 16386}}})", "session too high"},
         {R"({"model": "m", "session": {"downscale": {"bogus": 1}}})", "session unknown key"},
+        {R"({"model": "m", "session": {"format": "mkv"}})", "a format that does not exist"},
+        {R"({"model": "m", "session": {"format": 1}})", "a number for the format"},
+        {R"({"model": "m", "archive": {"format": ""}})", "an empty format"},
+        {R"({"model": "m", "violation": {"clip": {"format": "MP4"}}})", "a format in capitals"},
+        {R"({"model": "m", "violation": {"image": {"format": "mp4"}}})", "an image has no format"},
+        {R"({"model": "m", "violation": {"format": "mp4"}})", "the violation has no format"},
+        {R"({"model": "m", "stream": {"format": "mp4"}})", "the stream has no format"},
         {R"({"model": "m", "stream": {"downscale": {"enabled": true}}})", "stream has none"},
         {R"({"model": "m", "downscale": {"enabled": true}})", "a top downscale group"},
         {R"({"model": "m", "clip": {"enabled": true}})", "the clip group outside violation"},

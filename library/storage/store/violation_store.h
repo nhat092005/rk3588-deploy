@@ -9,6 +9,7 @@
 #include <string_view>
 
 #include "logger.h"
+#include "video_file.h"
 #include "violation_rule.h"
 
 /** @brief Where the violations go on the board. The root is a parameter of the application. */
@@ -23,12 +24,24 @@ struct StoreConfig {
     std::string_view root{defaultViolationRoot};
     /** Permissions of the files, applied with fchmod so that the umask does not change them. */
     unsigned fileMode{defaultFileMode};
+    /** The format of the video clip: `.h265` as the encoder wrote it (the default), or another. */
+    VideoOutput clipOutput{rawVideoOutput};
 };
 
 /** @brief A block of bytes that someone else owns, for example a JPEG of JpegEncoder. */
 struct StoredBytes {
     const std::uint8_t* data{nullptr};
     std::size_t size{0};
+};
+
+/** @brief A video clip that someone else owns: the packets of an H.265 stream, one after the other
+ *         in a block of bytes, and the list that says where each one ends. */
+struct StoredClip {
+    const std::uint8_t* data{nullptr};
+    std::size_t size{0};
+    /** The packets in order. Their sizes add up to `size`. The first is a key frame. */
+    const PacketInfo* packets{nullptr};
+    std::size_t packetCount{0};
 };
 
 /** @brief One violation to store. */
@@ -80,24 +93,27 @@ public:
     [[nodiscard]] std::optional<std::string> save(const ViolationRecord& record) const noexcept;
 
     /**
-     * @brief Adds the video clip of a stored violation as `clip.h265` in its directory. Called
-     *        later than save(), when the clip is complete.
+     * @brief Adds the video clip of a stored violation as `clip.h265` (or `clip.mp4`, see
+     *        StoreConfig::clipOutput) in its directory. Called later than save(), when the clip is
+     *        complete.
      * @param directory The path that save() returned.
-     * @param clip The H.265 bytes (Annex B). Not empty.
-     * @return false when the directory is gone, the clip is empty, a `clip.h265` exists, or the
-     *         write fails (full disk), which is logged. Nothing is left behind on failure.
+     * @param clip The H.265 bytes (Annex B) and their packets. Not empty.
+     * @return false when the directory is gone, the clip is empty or its packets do not add up,
+     *         a clip file exists, or the write fails (full disk), which is logged. Nothing is left
+     *         behind on failure.
      *
      * The file appears whole: it is written under a hidden name, flushed, and renamed.
      */
     [[nodiscard]] bool saveClip(const std::string& directory,
-                                const StoredBytes& clip) const noexcept;
+                                const StoredClip& clip) const noexcept;
 
 private:
-    ViolationStore(std::string rootPath, unsigned mode, Logger logger)
-        : root{std::move(rootPath)}, fileMode{mode}, log{logger} {}
+    ViolationStore(std::string rootPath, unsigned mode, VideoOutput output, Logger logger)
+        : root{std::move(rootPath)}, fileMode{mode}, clipOutput{output}, log{logger} {}
 
     std::string root;
     unsigned fileMode;
+    VideoOutput clipOutput;
     Logger log;
 };
 

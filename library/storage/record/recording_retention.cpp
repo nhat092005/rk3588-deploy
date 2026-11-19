@@ -9,13 +9,13 @@
 #include <sys/statvfs.h>
 
 #include "store_names.h"
+#include "video_file.h"
 
 namespace {
 namespace fs = std::filesystem;
 
 constexpr std::time_t secondsPerDay{86'400};
-constexpr std::string_view segmentSuffix{".h265"};
-constexpr std::string_view tempSuffix{".h265.tmp"};
+constexpr std::string_view tempEnding{".tmp"};
 
 bool endsWith(std::string_view text, std::string_view suffix) {
     return text.size() >= suffix.size() && text.substr(text.size() - suffix.size()) == suffix;
@@ -30,21 +30,28 @@ bool validStem(std::string_view stem) {
     return stem.empty() || (stem.size() > 1 && stem[0] == '_' && allDigits(stem.substr(1)));
 }
 
-// The "HHMMSS[_k]" of a final name "HHMMSS[_k].h265", or empty.
-std::optional<std::string_view> finalStem(std::string_view name) {
-    if (!endsWith(name, segmentSuffix)) {
+// The "HHMMSS[_k]" of `name` without `suffix`, or empty when the name is not of that form.
+std::optional<std::string_view> stemOf(std::string_view name, std::string_view suffix) {
+    if (!endsWith(name, suffix)) {
         return std::nullopt;
     }
-    const std::string_view stem{name.substr(0, name.size() - segmentSuffix.size())};
+    const std::string_view stem{name.substr(0, name.size() - suffix.size())};
     return validStem(stem) ? std::optional<std::string_view>{stem} : std::nullopt;
 }
 
-// Whether `name` is ".HHMMSS[_k].h265.tmp".
+// The "HHMMSS[_k]" of a final name "HHMMSS[_k].h265" or "HHMMSS[_k].mp4", or empty. The two
+// formats can sit in the same folder: the format may change between runs.
+std::optional<std::string_view> finalStem(std::string_view name) {
+    const std::optional<std::string_view> raw{stemOf(name, h265Suffix)};
+    return raw ? raw : stemOf(name, mp4Suffix);
+}
+
+// Whether `name` is ".HHMMSS[_k].h265.tmp" or ".HHMMSS[_k].mp4.tmp".
 bool isTemporary(std::string_view name) {
-    if (name.empty() || name.front() != '.' || !endsWith(name, tempSuffix)) {
+    if (name.empty() || name.front() != '.' || !endsWith(name, tempEnding)) {
         return false;
     }
-    return validStem(name.substr(1, name.size() - 1 - tempSuffix.size()));
+    return finalStem(name.substr(1, name.size() - 1 - tempEnding.size())).has_value();
 }
 
 bool isRealDirectory(const fs::directory_entry& entry) {

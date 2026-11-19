@@ -40,6 +40,9 @@ struct ClipSlot {
     std::atomic<int> phase{slotFree};
     std::vector<std::uint8_t> bytes;
     std::size_t used{0};
+    // The packets in the bytes, sized by create(): adding one allocates nothing.
+    std::vector<PacketInfo> packets;
+    std::size_t packetCount{0};
     std::int64_t eventId{0};
     double startSeconds{0.0};
     double eventSeconds{0.0};
@@ -58,8 +61,15 @@ struct ClipState {
         const std::size_t clipBytes{
             bytesFor(configuration, configuration.preSeconds + configuration.gopSeconds +
                                         configuration.postSeconds + headroomSeconds)};
+        // Frames of a whole clip, with room for the packets that a rounding adds.
+        const auto clipPackets{static_cast<std::size_t>(
+                                   std::ceil((configuration.preSeconds + configuration.gopSeconds +
+                                              configuration.postSeconds + headroomSeconds) *
+                                             configuration.framesPerSecond)) +
+                               2};
         for (ClipSlot& slot : slots) {
             slot.bytes.resize(clipBytes);
+            slot.packets.resize(clipPackets);
         }
         recording.reserve(configuration.clipCount);
         waiting.reserve(configuration.clipCount);
@@ -73,7 +83,8 @@ struct ClipState {
     void store(const std::uint8_t* data, std::size_t size, bool keyFrame, double seconds);
     void evictFor(std::size_t size);
     void copyFromRing(const PacketEntry& entry, ClipSlot& slot) const;
-    static bool append(ClipSlot& slot, const std::uint8_t* data, std::size_t size);
+    static bool append(ClipSlot& slot, const std::uint8_t* data, std::size_t size, bool keyFrame,
+                       double seconds);
     void finishAt(std::size_t position);
 
     ClipConfig config;
@@ -120,14 +131,19 @@ void ClipState::copyFromRing(const PacketEntry& entry, ClipSlot& slot) const {
     std::memcpy(slot.bytes.data() + slot.used, ring.data() + entry.offset, first);
     std::memcpy(slot.bytes.data() + slot.used + first, ring.data(), entry.size - first);
     slot.used += entry.size;
+    slot.packets.at(slot.packetCount) = PacketInfo{entry.size, entry.keyFrame, entry.seconds};
+    ++slot.packetCount;
 }
 
-bool ClipState::append(ClipSlot& slot, const std::uint8_t* data, std::size_t size) {
-    if (slot.used + size > slot.bytes.size()) {
+bool ClipState::append(ClipSlot& slot, const std::uint8_t* data, std::size_t size, bool keyFrame,
+                       double seconds) {
+    if (slot.used + size > slot.bytes.size() || slot.packetCount >= slot.packets.size()) {
         return false;
     }
     std::memcpy(slot.bytes.data() + slot.used, data, size);
     slot.used += size;
+    slot.packets.at(slot.packetCount) = PacketInfo{size, keyFrame, seconds};
+    ++slot.packetCount;
     return true;
 }
 
@@ -163,7 +179,7 @@ void ClipRecorder::addPacket(const std::uint8_t* data, std::size_t size, bool ke
     // From the back, so that finishing a clip does not move the ones still to visit.
     for (std::size_t position{clips.recording.size()}; position-- > 0;) {
         ClipSlot& slot{clips.slots.at(clips.recording.at(position))};
-        const bool kept{ClipState::append(slot, data, size)};
+        const bool kept{ClipState::append(slot, data, size, keyFrame, seconds)};
         if (!kept || seconds - slot.eventSeconds >= clips.config.postSeconds) {
             clips.finishAt(position);
         }
@@ -195,6 +211,7 @@ bool ClipRecorder::start(std::int64_t eventId) noexcept {
     }
     ClipSlot& slot{*freeSlot};
     slot.used = 0;
+    slot.packetCount = 0;
     for (std::size_t offset{*from}; offset < clips.indexCount; ++offset) {
         const PacketEntry& entry{clips.index.at((clips.indexFirst + offset) % clips.index.size())};
         // The clip buffer is larger than the ring, so the pre-roll always fits.
@@ -228,8 +245,8 @@ std::optional<ClipRef> ClipRecorder::finished() noexcept {
     clips.waiting.erase(clips.waiting.begin());
     ClipSlot& slot{clips.slots.at(slotIndex)};
     slot.phase.store(slotHanded, std::memory_order_release);
-    return ClipRef{slotIndex,    slot.bytes.data(), slot.used,
-                   slot.eventId, slot.startSeconds, slot.eventSeconds};
+    return ClipRef{slotIndex,         slot.bytes.data(), slot.used,           slot.eventId,
+                   slot.startSeconds, slot.eventSeconds, slot.packets.data(), slot.packetCount};
 }
 
 void ClipRecorder::release(std::size_t slot) noexcept {

@@ -10,6 +10,7 @@ set(BOARD_ONLY_TESTS
     test_video_encoder
     test_app_options
     test_output_plan
+    test_mp4_writer
     test_npu_infer
 )
 
@@ -71,6 +72,7 @@ foreach(TEST_SRC ${TEST_SOURCES})
                     npu_lib
                     jpeg_lib
                     video_lib
+                    mux_lib
                     options_lib
         )
     endif()

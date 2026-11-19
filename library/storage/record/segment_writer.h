@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <ctime>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -12,6 +13,7 @@
 #include "handles.h"
 #include "logger.h"
 #include "packet_queue.h"
+#include "video_file.h"
 #include "violation_store.h"
 
 /** @brief Defaults of the archive (continuous recording in segment files). */
@@ -27,6 +29,8 @@ struct SegmentConfig {
     double segmentSeconds{defaultSegmentSeconds};
     /** Permissions of the files, applied with fchmod so that the umask does not change them. */
     unsigned fileMode{defaultFileMode};
+    /** The format of the files: `.h265` as the encoder wrote it (the default), or another. */
+    VideoOutput output{rawVideoOutput};
 };
 
 /** @brief A segment that was completed: its file is final and flushed. */
@@ -37,14 +41,15 @@ struct ClosedSegment {
 
 /**
  * @brief Writes the packets of an H.265 stream into segment files:
- *        `<root>/<YYYY-MM-DD>/<HHMMSS>.h265`, named by the wall-clock time at which the segment
- *        starts (a second one in the same second gets `_2`, `_3` and so on). A segment starts on a
- *        key frame, which carries the VPS, SPS and PPS, so every file plays on its own.
+ *        `<root>/<YYYY-MM-DD>/<HHMMSS>.h265` (or `.mp4`, see SegmentConfig::output), named by the
+ *        wall-clock time at which the segment starts (a second one in the same second gets `_2`,
+ * `_3` and so on). A segment starts on a key frame, which carries the VPS, SPS and PPS, so every
+ * file plays on its own.
  *
- * A file is written under a hidden name (`.<HHMMSS>.h265.tmp`), flushed with fsync when it is
- * complete, and renamed, so a file with its final name is always whole. A power cut leaves at most
- * a hidden temporary file. It allocates strings and waits for the disk: it belongs to a thread of
- * its own. Move-only through its members: a file that is open when the object goes is closed and
+ * A file is written under a hidden name (`.<HHMMSS>.h265.tmp`, `.mp4.tmp`), flushed with fsync when
+ * it is complete, and renamed, so a file with its final name is always whole. A power cut leaves at
+ * most a hidden temporary file. It allocates strings and waits for the disk: it belongs to a thread
+ * of its own. Move-only through its members: a file that is open when the object goes is closed and
  * its temporary file stays (call finish() first).
  */
 class SegmentWriter {
@@ -99,7 +104,7 @@ public:
 private:
     SegmentWriter(const SegmentConfig& config, Logger logger)
         : root{config.root}, segmentSeconds{config.segmentSeconds}, fileMode{config.fileMode},
-          log{logger} {}
+          output{config.output}, log{logger} {}
 
     bool open(std::time_t wallNow, const QueuedPacket& first);
     bool close();
@@ -108,8 +113,10 @@ private:
     std::string root;
     double segmentSeconds;
     unsigned fileMode;
+    VideoOutput output;
     Logger log;
     FileDescriptor file;
+    std::unique_ptr<VideoFileWriter> video;
     std::string tempPath;
     std::string finalPath;
     double segmentStart{0.0};

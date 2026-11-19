@@ -38,6 +38,9 @@ struct EvidenceJob {
     std::int64_t eventId{0};
     const std::uint8_t* data{nullptr};
     std::size_t size{0};
+    /** Clip: the packets of the bytes, as ClipRef::packets. */
+    const PacketInfo* packets{nullptr};
+    std::size_t packetCount{0};
 };
 
 /**

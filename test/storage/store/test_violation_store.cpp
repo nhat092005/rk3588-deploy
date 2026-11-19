@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -16,7 +17,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "handles.h"
 #include "logger.h"
+#include "video_file.h"
 #include "violation_store.h"
 
 namespace {
@@ -36,6 +39,53 @@ constexpr std::uint8_t markedByte{0xB2};
 constexpr std::size_t originalSize{1000};
 constexpr std::size_t clipSize{5000};
 constexpr std::uint8_t clipByte{0x77};
+constexpr std::size_t clipPackets{4};
+
+// A clip of the bytes, cut in a few packets of the same size (the first is a key frame).
+struct Clip {
+    Clip() : bytes(clipSize, clipByte) {
+        const std::size_t each{clipSize / clipPackets};
+        for (std::size_t index{0}; index < clipPackets; ++index) {
+            packets.push_back(PacketInfo{each, index == 0, static_cast<double>(index)});
+        }
+        packets.back().size += clipSize - (each * clipPackets);
+    }
+
+    StoredClip stored() const {
+        return StoredClip{bytes.data(), bytes.size(), packets.data(), packets.size()};
+    }
+
+    std::vector<std::uint8_t> bytes;
+    std::vector<PacketInfo> packets;
+};
+
+// A format that writes one line for each packet, to see what a store hands to a writer.
+class LineWriter final : public VideoFileWriter {
+public:
+    explicit LineWriter(int descriptor, const Logger& logger) : file{descriptor}, log{logger} {}
+
+    bool write(const std::uint8_t* /*data*/, std::size_t size, bool keyFrame,
+               double seconds) override {
+        const std::string line{std::to_string(size) + (keyFrame ? " key " : " delta ") +
+                               std::to_string(static_cast<int>(seconds)) + "\n"};
+        return writeBytes(file, reinterpret_cast<const std::uint8_t*>(line.data()), line.size(),
+                          log);
+    }
+    bool flush() override {
+        return true;
+    }
+    bool finish() override {
+        return writeBytes(file, reinterpret_cast<const std::uint8_t*>("end\n"), 4, log);
+    }
+
+private:
+    int file;
+    Logger log;
+};
+
+std::unique_ptr<VideoFileWriter> makeLineWriter(int descriptor, const Logger& log) {
+    return std::make_unique<LineWriter>(descriptor, log);
+}
 constexpr std::size_t markedSize{2000};
 constexpr int year{2026};
 constexpr int yearBase{1900};
@@ -228,8 +278,8 @@ void checkClip(Check& check, const fs::path& root, const Logger& log) {
         check.expect(false, "violation saved for the clip");
         return;
     }
-    const std::vector<std::uint8_t> clip(clipSize, clipByte);
-    const StoredBytes bytes{clip.data(), clip.size()};
+    const Clip clipData;
+    const StoredClip bytes{clipData.stored()};
     check.expect(store->saveClip(*saved, bytes), "the clip is saved");
     const fs::path path{fs::path{*saved} / "clip.h265"};
     check.expect(readText(path) == std::string(clipSize, static_cast<char>(clipByte)),
@@ -240,10 +290,44 @@ void checkClip(Check& check, const fs::path& root, const Logger& log) {
                  "a second clip for the same violation is refused");
     const std::optional<std::string> other{
         store->save(recordOf(eventOf(firstTrack + 2, true, true), images, false, wallTime()))};
-    check.expect(other && !store->saveClip(*other, StoredBytes{}), "an empty clip is refused");
+    check.expect(other && !store->saveClip(*other, StoredClip{}), "an empty clip is refused");
+    StoredClip lopsided{clipData.stored()};
+    lopsided.packetCount = 2;
+    check.expect(other && !store->saveClip(*other, lopsided),
+                 "packets that do not add up to the bytes are refused");
+    StoredClip headless{clipData.stored()};
+    headless.packets = nullptr;
+    check.expect(other && !store->saveClip(*other, headless), "a clip without packets is refused");
     check.expect(other && !fs::exists(fs::path{*other} / "clip.h265"), "and leaves no file");
     const std::string gone{(root / "no-such-directory").string()};
     check.expect(!store->saveClip(gone, bytes), "a missing directory is refused");
+}
+
+void checkClipFormat(Check& check, const fs::path& root, const Logger& log) {
+    const std::string text{root.string()};
+    const std::optional<ViolationStore> store{ViolationStore::create(
+        StoreConfig{text, defaultFileMode, VideoOutput{".mp4", &makeLineWriter}}, log)};
+    if (!store) {
+        check.expect(false, "store created for another format");
+        return;
+    }
+    const Images images;
+    const std::optional<std::string> saved{
+        store->save(recordOf(eventOf(firstTrack + 1, false, true), images, false, wallTime()))};
+    const Clip clipData;
+    check.expect(saved && store->saveClip(*saved, clipData.stored()), "the clip is saved as mp4");
+    if (!saved) {
+        return;
+    }
+    const fs::path path{fs::path{*saved} / "clip.mp4"};
+    check.expect(!fs::exists(fs::path{*saved} / "clip.h265"), "there is no clip.h265");
+    check.expect(readText(path) == "1250 key 0\n1250 delta 1\n1250 delta 2\n1250 delta 3\nend\n",
+                 "the writer got every packet, in order, and was finished");
+    check.expect(modeOf(path) == defaultFileMode, "the clip has the configured mode");
+    check.expect(hiddenEntries(*saved) == 0, "no temporary clip file is left");
+    check.expect(!ViolationStore::create(
+                     StoreConfig{text, defaultFileMode, VideoOutput{".mp4", nullptr}}, log),
+                 "a format without a writer is refused");
 }
 
 void checkNames(Check& check, const fs::path& root, const Logger& log) {
@@ -299,9 +383,8 @@ void checkNoImages(Check& check, const fs::path& root, const Logger& log) {
     const std::string json{readText(directory / "event.json")};
     check.expect(contains(json, "\"original\": null") && contains(json, "\"marked\": null"),
                  "event.json says both images are null");
-    const std::vector<std::uint8_t> clip(clipSize, clipByte);
-    check.expect(store->saveClip(*saved, StoredBytes{clip.data(), clip.size()}) &&
-                     fs::exists(directory / "clip.h265"),
+    const Clip clipData;
+    check.expect(store->saveClip(*saved, clipData.stored()) && fs::exists(directory / "clip.h265"),
                  "a clip joins a violation without images");
 }
 
@@ -382,6 +465,7 @@ int main() {
     withRoot(check, log, checkLayout);
     withRoot(check, log, checkNames);
     withRoot(check, log, checkClip);
+    withRoot(check, log, checkClipFormat);
     withRoot(check, log, checkNoImages);
     withRoot(check, log, checkRefusals);
     withRoot(check, log, checkFailure);

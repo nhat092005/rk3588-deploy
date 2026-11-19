@@ -35,12 +35,13 @@ struct RecordingRetentionConfig {
  *        SegmentWriter.
  *
  * It only ever removes what SegmentWriter wrote: a regular file `<root>/<YYYY-MM-DD>/<HHMMSS>.h265`
- * (or `<HHMMSS>_<k>.h265`). Any other file or directory, and any symbolic link, is left alone and
- * not counted. At creation it also removes the hidden temporary files that SegmentWriter leaves
- * when the program stops while a segment is open (`.<HHMMSS>[_<k>].h265.tmp`): nothing else writes
- * in the folder, so such a file is garbage. The age comes from the name, not from the
- * modification time. The segments are kept in an index in memory. Not thread safe: use it from the
- * thread that writes the segments. Move-only.
+ * (or `<HHMMSS>_<k>.h265`, or the same with `.mp4`: the format may change between runs). Any other
+ * file or directory, and any symbolic link, is left alone and not counted. At creation it also
+ * removes the hidden temporary files that SegmentWriter leaves when the program stops while a
+ * segment is open (`.<HHMMSS>[_<k>].h265.tmp`, `.mp4.tmp`): nothing else writes in the folder, so
+ * such a file is garbage. The age comes from the name, not from the modification time. The segments
+ * are kept in an index in memory. Not thread safe: use it from the thread that writes the segments.
+ * Move-only.
  */
 class RecordingRetention {
 public:
