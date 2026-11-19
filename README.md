@@ -12,7 +12,8 @@ The product side on the Orange Pi 5 (RK3588): the C++ app, board-side Python and
 | `probes/` | Board hardware probes: `device/`, `stage/`, `pipeline/` (table below) |
 | `test/` | One test executable per `.cpp`, in the folder of the library it tests (`test/<group>/<library>/`) |
 | `cmake/` | `build_config.cmake`: one `ON`/`OFF` switch for the app, each test and each probe. Also the toolchain file and the SDK finder |
-| `sh/env/` | Board setup: `setup_board.sh`, `lock_freq.sh`, `start_rknn_server.sh`, `install_udev_rules.sh` (installs `99-rk3588-deploy.rules`), `run_tests.sh` (runs every C++ test on the board) |
+| `sh/env/` | Board setup: `setup_board.sh`, `lock_freq.sh`, `start_rknn_server.sh`, `install_udev_rules.sh` (installs `99-rk3588-deploy.rules`), `install_mediamtx.sh` (the RTSP server of the live view), `run_tests.sh` (runs every C++ test on the board) |
+| `sh/stream/` | Live view: `run_mediamtx.sh` and its `mediamtx.yml` (see Live view) |
 | `sh/record/` | Record the ISP streams to MP4 with the VPU: `rec_4k.sh`, `rec_640x360.sh`, `rec_both.sh` |
 | `tools/check/` | PC scripts that check what a probe or the app wrote (table below) |
 | `tools/generate/` | PC scripts that write generated headers (table below) |
@@ -70,10 +71,34 @@ Every key of the file is optional (a missing key keeps its default) except `mode
 | `record.segment_seconds` | `--record-segment-seconds` | 60 | number, above 0 to 3600 |
 | `record.max_storage_gb` | `--record-max-storage-gb` | 5.0 | number, above 0 to 100000 |
 | `record.keep_days` | `--record-keep-days` | 7 | number, 1 to 3650 |
+| `stream.enabled` | `--stream` | `false` | `true` or `false` |
+| `stream.url` | `--stream-url` | `rtsp://127.0.0.1:8554/live` | string, not empty |
 | `run.frames` | `--frames` | 0 | number, 0 to 10^12 (0: no limit) |
 | `run.stats_seconds` | `--stats-seconds` | 1.0 | number, above 0 to 3600 |
 
-`--config <file>` and `--help` have no key. On the command line every flag takes a value, `--record` too (`--record true` or `--record false`), so that a flag can turn off what the file turned on.
+`--config <file>` and `--help` have no key. On the command line every flag takes a value, `--record` and `--stream` too (`--record true` or `--record false`), so that a flag can turn off what the file turned on.
+
+### Live view
+
+`--stream true` (or `stream.enabled` in the file) publishes the finished video, with the boxes and labels, over RTSP while the app runs. It is the same H.265 4K stream that is recorded, about 20 Mbit/s, so it costs no extra encoding. The app starts `ffmpeg -c copy` and feeds it the packets, and `ffmpeg` publishes to a MediaMTX server on the board.
+
+```
+# on the board, once
+bash deploy/sh/env/install_mediamtx.sh
+# on the board, before the app, and again after every reboot
+bash deploy/sh/stream/run_mediamtx.sh
+./rk3588_deploy --stream true
+
+# on the PC (ffplay comes with ffmpeg)
+ffplay -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://<board>:8554/live
+```
+
+- Only the app on the board may publish, anyone on the network may watch (`sh/stream/mediamtx.yml`, no password).
+- A viewer that joins in the middle sees the picture at the next key frame, at most 1 second (GOP of 30 frames).
+- At start-up the app checks that the address is valid, that `ffmpeg` is in PATH and that something listens at the address. If not, it logs the reason and what to do, and exits with code 1 before the camera is opened. With `--stream false` (the default) none of this runs.
+- If `ffmpeg` or MediaMTX ends or stops reading while the app runs, the app logs one warning and goes on without the stream: detection, recording and clips are not affected. The end-of-run line `stream: ...` says `GIVEN UP`.
+- A full queue (a slow viewer or network) drops packets until the next key frame, as the recording does. It never slows the pipeline.
+- The stream thread runs on core 2 and `ffmpeg` inherits that core.
 
 ## Pipeline
 
@@ -82,7 +107,7 @@ camera -> letterbox (RGA) -> NPU -> tracker -> rule -> draw -> H.265
                                                   \-> JPEG + clip (violation)
 ```
 
-Four threads (five with `--record true`), each pinned to its own big core. A full queue drops the frame and counts it, it never blocks the producer.
+Four threads (five with `--record true`, six with `--stream true`), each pinned to its own big core. A full queue drops the frame and counts it, it never blocks the producer.
 
 | Thread | Work |
 |---|---|
@@ -91,6 +116,7 @@ Four threads (five with `--record true`), each pinned to its own big core. A ful
 | writer | RGA upright copy, outlines and labels, H.265, clip ring |
 | evidence | 2 JPEGs, `event.json`, `clip.h265`, retention |
 | recorder | continuous segment files (only with `--record true`) |
+| stream | packets to `ffmpeg`, which publishes RTSP (only with `--stream true`) |
 
 Why this layout: `tmp/01_research/2026-11-18_thread-layout-stage7b.md`.
 
@@ -142,6 +168,7 @@ In five groups, `library/<group>/<library>/`. A group depends only on the groups
 | Library | Role |
 |---|---|
 | `options` | `parseOptions`: the config file and the flags of the app |
+| `stream` | `StreamWorker` and `ChildProcess`: the packets to an `ffmpeg` that publishes RTSP |
 | `pipeline` | `Pipeline` and its threads: `OutputBranch`, `EvidenceWorker`, `RecordWorker` |
 
 ## Probes

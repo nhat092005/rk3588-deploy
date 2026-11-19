@@ -113,6 +113,8 @@ void checkDefaults(Check& check) {
                      near(options.recordMaxStorageGb, defaultRecordMaxStorageGb) &&
                      options.recordKeepDays == defaultRecordKeepDays,
                  "default recording: off, /data/records, 60 s, 5 GB, 7 days");
+    check.expect(!options.stream && options.streamUrl == defaultStreamUrl,
+                 "default stream: off, rtsp://127.0.0.1:8554/live");
     check.expect(options.frames == 0, "default: no frame limit");
     check.expect(near(options.statsSeconds, defaultStatsSeconds), "default statistics period");
 }
@@ -158,6 +160,10 @@ void checkEveryFlag(Check& check) {
                                     "2.5",
                                     "--record-keep-days",
                                     "3",
+                                    "--stream",
+                                    "true",
+                                    "--stream-url",
+                                    "rtsp://10.0.0.2:8554/cam",
                                     "--frames",
                                     "300",
                                     "--stats-seconds",
@@ -186,6 +192,8 @@ void checkEveryFlag(Check& check) {
                      near(options.recordMaxStorageGb, customRecordStorage) &&
                      options.recordKeepDays == customRecordDays,
                  "--record and its flags");
+    check.expect(options.stream && options.streamUrl == "rtsp://10.0.0.2:8554/cam",
+                 "--stream and --stream-url");
     check.expect(options.frames == customFrames, "--frames");
     check.expect(near(options.statsSeconds, customStats), "--stats-seconds");
 }
@@ -266,6 +274,12 @@ std::vector<Case> cases() {
         {{"--model", "m", "--record", "TRUE"}, invalid, "--record in capitals"},
         {{"--model", "m", "--record", ""}, invalid, "--record with an empty value"},
         {{"--model", "m", "--output-dir", "/x"}, invalid, "the old --output-dir"},
+        {{"--model", "m", "--stream", "true"}, run, "--stream true"},
+        {{"--model", "m", "--stream", "false"}, run, "--stream false"},
+        {{"--model", "m", "--stream"}, invalid, "--stream without a value"},
+        {{"--model", "m", "--stream", "1"}, invalid, "--stream 1"},
+        {{"--model", "m", "--stream", "TRUE"}, invalid, "--stream in capitals"},
+        {{"--model", "m", "--stream-url", ""}, invalid, "an empty stream address"},
         {{"--model", "m", "--record-dir", "/x"}, invalid, "the old --record-dir"},
         {{"--model", "m", "--record-output-dir", ""}, invalid, "an empty record folder"},
         {{"--model", "m", "--record-segment-seconds", "0"}, invalid, "segment 0"},
@@ -338,6 +352,7 @@ constexpr const char* everyKeyConfig{R"({
     "max_storage_gb": 2.5,
     "keep_days": 3
   },
+  "stream": {"enabled": true, "url": "rtsp://10.0.0.2:8554/cam"},
   "run": {"frames": 300, "stats_seconds": 5}
 })"};
 
@@ -369,6 +384,8 @@ void checkConfigEveryKey(Check& check, const fs::path& root) {
                      near(options.recordMaxStorageGb, customRecordStorage) &&
                      options.recordKeepDays == customRecordDays,
                  "config: record");
+    check.expect(options.stream && options.streamUrl == "rtsp://10.0.0.2:8554/cam",
+                 "config: stream");
     check.expect(options.frames == customFrames && near(options.statsSeconds, customStats),
                  "config: run");
     check.expect(
@@ -424,6 +441,10 @@ void checkConfigOrder(Check& check, const fs::path& root) {
     check.expect(!parseIn(root.string(), {}).options.record, "record false stays off");
     check.expect(parseIn(root.string(), {"--record", "true"}).options.record,
                  "--record true turns on what the file left off");
+    writeDefaultConfig(root, R"({"model": "m", "stream": {"enabled": true}})");
+    check.expect(parseIn(root.string(), {}).options.stream, "stream true from the file");
+    check.expect(!parseIn(root.string(), {"--stream", "false"}).options.stream,
+                 "--stream false turns off what the file turned on");
     writeDefaultConfig(root, R"({"model": "m", "camera": {}, "record": {}})");
     check.expect(parseIn(root.string(), {}).status == ParseStatus::Run, "empty groups");
 }
@@ -520,6 +541,9 @@ void checkConfigRefusals(Check& check, const fs::path& root) {
         {R"({"model": "m", "camera": {"rotation": "180"}})", "text for the rotation"},
         {R"({"model": "m", "camera": {"node": 11}})", "a number for the node"},
         {R"({"model": "m", "record": {"enabled": 1}})", "a number for enabled"},
+        {R"({"model": "m", "stream": {"enabled": "true"}})", "text for stream enabled"},
+        {R"({"model": "m", "stream": {"url": ""}})", "an empty stream address"},
+        {R"({"model": "m", "stream": {"port": 1}})", "an unknown stream key"},
         {R"({"model": "m", "record": {"enabled": "true"}})", "text for enabled"},
         {R"({"model": true})", "a boolean for the model"},
         {R"({"model": 5})", "a number for the model"},

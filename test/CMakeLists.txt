@@ -57,6 +57,7 @@ foreach(TEST_SRC ${TEST_SOURCES})
                 stats_lib
                 clip_lib
                 record_lib
+                stream_lib
                 config_lib
     )
     if(CMAKE_CROSSCOMPILING)

@@ -13,5 +13,6 @@ if(CMAKE_CROSSCOMPILING)
                rule_lib
                store_lib
                record_lib
+               stream_lib
     )
 endif()

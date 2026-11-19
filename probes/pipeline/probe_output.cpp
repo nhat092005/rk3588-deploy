@@ -231,8 +231,8 @@ bool run(const Camera& camera, const StopSignal& stop, const Options& options, c
             return false;
         }
     }
-    std::optional<OutputBranch> output{
-        OutputBranch::create(app, camera.format(), record ? &record->queue() : nullptr, log)};
+    const PacketSinks sinks{record ? &record->queue() : nullptr, nullptr};
+    std::optional<OutputBranch> output{OutputBranch::create(app, camera.format(), sinks, log)};
     if (!output) {
         return false;
     }

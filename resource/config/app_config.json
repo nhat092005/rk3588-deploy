@@ -29,6 +29,10 @@
     "max_storage_gb": 5.0,
     "keep_days": 7
   },
+  "stream": {
+    "enabled": false,
+    "url": "rtsp://127.0.0.1:8554/live"
+  },
   "run": {
     "frames": 0,
     "stats_seconds": 1.0

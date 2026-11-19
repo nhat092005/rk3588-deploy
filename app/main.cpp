@@ -12,6 +12,7 @@
 #include "file_text.h"
 #include "logger.h"
 #include "pipeline.h"
+#include "stream_check.h"
 
 namespace {
 constexpr int exitUsage{2};
@@ -26,6 +27,10 @@ int main(int argc, char** argv) {
     const ParseResult parsed{parseOptions(args, baseDir, log)};
     if (parsed.status != ParseStatus::Run) {
         return parsed.status == ParseStatus::Help ? EXIT_SUCCESS : exitUsage;
+    }
+    // A stream that was asked for must work: better to stop now than to run without it.
+    if (parsed.options.stream && !checkStreamReady(parsed.options.streamUrl, log)) {
+        return EXIT_FAILURE;
     }
     const std::optional<StopSignal> stop{StopSignal::create(log)};
     if (!stop) {

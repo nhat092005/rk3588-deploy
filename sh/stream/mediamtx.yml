@@ -1,0 +1,33 @@
+# MediaMTX for the live view of rk3588_deploy. Only RTSP over TCP is on.
+# The app publishes from this board (localhost only); anyone on the network may watch.
+logLevel: info
+
+rtsp: true
+rtspTransports: [tcp]
+rtspAddress: :8554
+
+rtmp: false
+hls: false
+webrtc: false
+srt: false
+moq: false
+playback: false
+api: false
+metrics: false
+pprof: false
+
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: ["127.0.0.1", "::1"]
+    permissions:
+      - action: publish
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: read
+
+paths:
+  all_others:

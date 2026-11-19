@@ -179,6 +179,20 @@ bool setRecord(AppOptions& options, const char* text) {
     return true;
 }
 
+bool setStream(AppOptions& options, const char* text) {
+    const std::string_view value{text};
+    if (value != "true" && value != "false") {
+        return false;
+    }
+    options.stream = value == "true";
+    return true;
+}
+
+bool setStreamUrl(AppOptions& options, const char* text) {
+    options.streamUrl = text;
+    return *text != '\0';
+}
+
 bool setRecordOutputDir(AppOptions& options, const char* text) {
     options.recordDir = text;
     return *text != '\0';
@@ -243,7 +257,7 @@ struct Flag {
     std::string_view path;
 };
 
-constexpr std::array<Flag, 23> flags{{
+constexpr std::array<Flag, 25> flags{{
     {"--model", setModel, "path of the .rknn model (required unless the config file gives it)",
      JsonKind::String, "model"},
     {"--config", setConfig, "config file, default <app folder>/resource/config/app_config.json",
@@ -284,6 +298,10 @@ constexpr std::array<Flag, 23> flags{{
      JsonKind::Number, "record.max_storage_gb"},
     {"--record-keep-days", setRecordKeepDays, "days a recording is kept, 1 to 3650",
      JsonKind::Number, "record.keep_days"},
+    {"--stream", setStream, "stream the video live over RTSP, true or false", JsonKind::Boolean,
+     "stream.enabled"},
+    {"--stream-url", setStreamUrl, "RTSP address the stream is published to", JsonKind::String,
+     "stream.url"},
     {"--frames", setFrames, "frames to process, 0 for no limit", JsonKind::Number, "run.frames"},
     {"--stats-seconds", setStatsSeconds, "seconds between two lines of statistics",
      JsonKind::Number, "run.stats_seconds"},

@@ -11,6 +11,7 @@
 #include "recording_retention.h"
 #include "rotation.h"
 #include "segment_writer.h"
+#include "stream_worker.h"
 #include "video_encoder.h"
 #include "violation_retention.h"
 #include "violation_rule.h"
@@ -76,6 +77,10 @@ struct AppOptions {
     double recordSegmentSeconds{defaultSegmentSeconds};
     double recordMaxStorageGb{defaultRecordMaxStorageGb};
     int recordKeepDays{defaultRecordKeepDays};
+    /** Live stream of the video, off unless --stream true is given: ffmpeg publishes it to
+     *  streamUrl (an RTSP server such as MediaMTX must listen there). */
+    bool stream{false};
+    std::string_view streamUrl{defaultStreamUrl};
     /** Frames to process, 0 for no limit (until SIGINT or SIGTERM). */
     std::int64_t frames{0};
     /** Seconds between two lines of statistics. */
@@ -123,10 +128,10 @@ struct ParseResult {
  * --gap-seconds, --min-confidence, --violation-output-dir, --clip-pre-seconds,
  * --clip-post-seconds, --max-storage-gb, --keep-days, --record (true or false),
  * --record-output-dir, --record-segment-seconds, --record-max-storage-gb, --record-keep-days,
- * --frames, --stats-seconds.
+ * --stream (true or false), --stream-url, --frames, --stats-seconds.
  *
  * The config file is one JSON object: `model` at the top and the other options in groups
- * (`camera`, `encode`, `rule`, `violation`, `record`, `run`), for example
+ * (`camera`, `encode`, `rule`, `violation`, `record`, `stream`, `run`), for example
  * `{"model": "m.rknn", "camera": {"width": 3840}, "record": {"enabled": true}}`. Every key is
  * optional. A key has the kind of value of its flag (`width` is a number, `node` a string,
  * `record.enabled` true or false) and the same range. The place of each key is in the table of
