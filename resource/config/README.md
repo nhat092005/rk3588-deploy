@@ -92,12 +92,12 @@
 - `mp4` is written fragmented on purpose. A plain MP4 keeps its index at the end of the file, so a power cut or a killed app leaves a file that cannot be opened. A fragmented one has an index for every second. Measured on the board: an app killed with `kill -9` left an MP4 of 270 frames (9 s) that `ffprobe` read and `ffmpeg` decoded without error.
 - Time of an `mp4` file is the time of the frames, so players show the length and let you seek, and a gap (a full queue) would show as a pause (that follows from the times and was not tried with a real gap). A raw `.h265` has no time: ffmpeg assumes 25 fps.
 - What a power cut loses: the frames since the last key frame that reached the disk, about 1 to 2 s in both formats. An `mp4` holds the frames of the current second in memory until the next key frame (a few MB at 4K).
-- The tag is `hvc1`, which QuickTime and Safari accept. The size is read from the stream, so `downscale` needs nothing more.
+- The tag is `hvc1`, the one that Apple players expect (playback in QuickTime or Safari was not tried). The size is read from the SPS of the stream: files written with `downscale` (1080 and 720) have exactly that size and decode without error.
 - An `mp4` file is about 0.03 % larger than the same `.h265` (measured: 24 373 624 against 24 366 965 bytes in 15 s).
 - Names: `<HHMMSS>.mp4`, `clip.mp4`. A temporary file of the archive is `.<HHMMSS>.mp4.tmp`. The retention of the archive counts and removes `.h265` and `.mp4` files, so the format can change between runs and the folder keeps both.
 - Join the segments of an archive (tried on the board with three segments: 300 frames in, 300 out): `for f in <day>/*.mp4; do echo "file '$f'"; done > list.txt; ffmpeg -f concat -safe 0 -i list.txt -c copy day.mp4`. For `h265`: `cat <day>/*.h265 > day.h265`.
 - A format is checked when the app starts: any other value (`MP4`, `mkv`, empty) stops it with exit code 2 and names the key.
-- Writing `mp4` costs no time in the writer thread (measured, three outputs, 900 frames: encode 5.6 ms for `mp4` and for `h265`, no frame dropped, no gap).
+- Writing `mp4` costs no time in the writer thread (measured with the archive at 1080 and the session at 720, 900 frames: encode 5.6 ms for `mp4` and 5.7 ms for `h265`, no frame dropped, no gap). The muxing of a clip was checked for correctness, not timed.
 
 ## Downscale
 

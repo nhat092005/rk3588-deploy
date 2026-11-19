@@ -93,7 +93,7 @@ Two flags save the finished H.265 video. Both are off by default and can run tog
 | Folder | `/data/archive/<YYYY-MM-DD>/<HHMMSS>.h265` | `/data/sessions/<YYYY-MM-DD>/<HHMMSS>.h265` |
 | Size limit | Deletes the oldest over `max_storage_gb` (5) or `keep_days` (7) | None |
 | Below `min_free_gb` (3) | Deletes the oldest | Closes the file, logs one warning, stops writing |
-| Power cut | Loses the open segment | Loses about 1 s |
+| Power cut | Loses the open segment | Loses about 1 s (about 1 to 2 s with `mp4`) |
 
 - `<HHMMSS>` is the start time. Runs of the same day share the folder. A name taken in the same second gets `_2`.
 - The folder must exist and be writable. For `--session`, a bad folder or a volume already below `min_free_gb` stops the app with exit code 1 before the camera opens.
