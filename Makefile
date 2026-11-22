@@ -20,7 +20,7 @@ CLANG_FORMAT = clang-format
 CLANG_TIDY   = clang-tidy
 CMAKE_FORMAT = cmake-format
 
-SOURCES := $(shell find app library test probes \( -name '*.cpp' -o -name '*.h' \))
+SOURCES := $(shell find app library test probes bench \( -name '*.cpp' -o -name '*.h' \))
 # aarch64-toolchain.cmake is hand-formatted (comments, one flag per line), cmake-format would rewrite it
 CMAKE_SOURCES := $(shell find . -path './build*' -prune -o \( -name CMakeLists.txt -o -name '*.cmake' \) ! -name aarch64-toolchain.cmake -print)
 
@@ -55,8 +55,8 @@ tidy: configure
 help:
 	@echo "Targets:"
 	@echo "  build       Configure + compile (default)"
-	@echo "  format      clang-format -i over app/, library/, test/, probes/; cmake-format -i over CMake files"
-	@echo "  tidy        clang-tidy over app/, library/, test/, probes/ (uses BUILD_DIR database)"
+	@echo "  format      clang-format -i over app/, library/, test/, probes/, bench/; cmake-format -i over CMake files"
+	@echo "  tidy        clang-tidy over app/, library/, test/, probes/, bench/ (uses BUILD_DIR database)"
 	@echo "  clean       Remove compiled objects/binaries, keep CMake cache"
 	@echo "  distclean   Remove the entire build directory"
 	@echo ""

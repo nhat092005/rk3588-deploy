@@ -37,9 +37,10 @@ endif()
 add_subdirectory(library)
 add_subdirectory(test)
 
-# Probes need the board libraries: cross-compile only.
+# Probes and benches need the board libraries: cross-compile only.
 if(CMAKE_CROSSCOMPILING)
     add_subdirectory(probes)
+    add_subdirectory(bench)
 else()
-    message(STATUS "skip probes: they need the board")
+    message(STATUS "skip probes and bench: they need the board")
 endif()
