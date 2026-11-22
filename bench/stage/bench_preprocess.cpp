@@ -2,6 +2,8 @@
 // 640 x 640 image) on the CPU with OpenCV and on the RGA, one synthetic frame, one table.
 // Usage: bench_preprocess [--size WxH] [--pattern gradient|bars|noise] [--runs N] [--warmup N]
 //                         [--heap reserved|system] [--dump DIR]
+// The frame is NV12 in BT.601 full range, what the camera of the board reports: the RGA takes two
+// calls (colour conversion into a staging buffer, then scale and rotate), as in the application.
 // Defaults: 3840x2160, gradient, 300 runs after 30 warmup runs, the "reserved" heap (the RGA2 maps
 // only memory below 4 GB). The run is meant for a board with the frequencies locked
 // (sh/env/lock_freq.sh): the bench does not lock them and does not record the state yet.

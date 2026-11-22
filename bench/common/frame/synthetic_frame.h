@@ -39,7 +39,7 @@ std::string_view patternName(Pattern pattern) noexcept;
 
 /**
  * @brief Draws a pattern into an NV12 frame: the luma plane, then the interleaved Cb Cr plane, in
- *        BT.601 limited range.
+ *        BT.601 full range, as the camera of the board reports.
  * @param pattern What to draw. The same pattern and size give the same bytes.
  * @param frame View of the frame: `3 * size.height / 2` rows of `size.width` bytes, 8 bits, one
  *        channel. The step may be larger than the width.

@@ -6,6 +6,7 @@
 #include <string_view>
 #include <utility>
 
+#include "dmabuf.h"
 #include "logger.h"
 #include "rga.h"
 
@@ -17,14 +18,15 @@ enum class RgaCore : std::uint8_t { Rga2, Rga30, Rga31 };
  *        the padding are those of RgaLetterbox: only the core differs.
  *
  * RgaLetterbox leaves the core to the kernel, which is what the application does. The bench needs
- * each core alone, so this class passes the core to the same improcess call.
+ * each core alone, so this class passes the core to the same improcess calls. A full range source
+ * takes two calls, as in RgaLetterbox: NV12 to RGB into a staging buffer, then scale, rotate and
+ * place. The staging buffer is in the lowHeap so that RGA2 can map it. Both calls use the core.
  */
 class RgaForcedLetterbox {
 public:
     /**
      * @brief Checks the configuration and computes the layout.
-     * @param config As for RgaLetterbox::create(). `fullRange` must be false and the rotation
-     *        180 degrees.
+     * @param config As for RgaLetterbox::create(). The rotation must be 180 degrees.
      * @param core The only core the job may use.
      * @param log Logger that the object keeps.
      * @return The converter, or empty when the configuration is rejected, which is logged.
@@ -51,13 +53,23 @@ public:
 
 private:
     RgaForcedLetterbox(RgaLetterbox&& converter, const LetterboxConfig& config, RgaCore chosen,
-                       Logger logger) noexcept
-        : base{std::move(converter)}, settings{config}, core{chosen}, log{logger} {}
+                       Logger logger, std::optional<DmaBuf> stagingBuffer,
+                       std::optional<RgaImage> stagingHandle) noexcept
+        : base{std::move(converter)}, settings{config}, core{chosen}, log{logger},
+          staging{std::move(stagingBuffer)}, stagingImage{std::move(stagingHandle)} {}
 
+    // NV12 full range to RGB888 of the source size, into the staging buffer, on the core.
+    [[nodiscard]] bool convertFullRange(const RgaImage& source, const RgaImage& staged,
+                                        int mask) const noexcept;
+
+    // Layout and padding only: it is made for a limited range source, so it owns no staging buffer.
     RgaLetterbox base;
     LetterboxConfig settings;
     RgaCore core;
     Logger log;
+    // The buffer is declared before its RGA handle, which is released first.
+    std::optional<DmaBuf> staging;
+    std::optional<RgaImage> stagingImage;
 };
 
 /**
