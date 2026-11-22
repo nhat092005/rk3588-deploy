@@ -1,8 +1,11 @@
 #include "preprocess_method.h"
 
+#include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <utility>
 
+#include <opencv2/core/utility.hpp>
 #include <opencv2/imgproc.hpp>
 
 namespace {
@@ -17,6 +20,49 @@ constexpr int nv12Denominator{2};
 
 constexpr std::size_t targetBytes{static_cast<std::size_t>(defaultModelSize) *
                                   static_cast<std::size_t>(defaultModelSize) * channels};
+
+// BT.601 full range NV12 to RGB, 16-bit fixed point: the coefficients 1.402, 0.344136, 0.714136 and
+// 1.772 times 65536. The colour of a 2 x 2 block is repeated for its four pixels, as the NV12
+// conversion of OpenCV does.
+constexpr int fixedShift{16};
+constexpr int fixedHalf{1 << (fixedShift - 1)};
+constexpr int redFromCr{91881};
+constexpr int greenFromCb{22554};
+constexpr int greenFromCr{46802};
+constexpr int blueFromCb{116130};
+constexpr int chromaMid{128};
+constexpr int byteMax{255};
+constexpr int blockSide{2};
+
+std::uint8_t toByte(int value) noexcept {
+    return static_cast<std::uint8_t>(std::clamp(value >> fixedShift, 0, byteMax));
+}
+
+// Converts the rows of the range: `luma` is height x width, `chroma` is height / 2 rows of
+// interleaved Cb Cr bytes, `rgb` is height x width x 3.
+void convertRows(const cv::Mat& luma, const cv::Mat& chroma, cv::Mat& rgb,
+                 const cv::Range& rows) noexcept {
+    const int width{luma.cols};
+    for (int row{rows.start}; row < rows.end; ++row) {
+        const std::uint8_t* lumaRow{luma.ptr<std::uint8_t>(row)};
+        const std::uint8_t* chromaRow{chroma.ptr<std::uint8_t>(row / blockSide)};
+        std::uint8_t* out{rgb.ptr<std::uint8_t>(row)};
+        for (int col{0}; col < width; col += blockSide) {
+            const int blue{chromaRow[col] - chromaMid};
+            const int red{chromaRow[col + 1] - chromaMid};
+            const int redTerm{(redFromCr * red) + fixedHalf};
+            const int greenTerm{fixedHalf - (greenFromCb * blue) - (greenFromCr * red)};
+            const int blueTerm{(blueFromCb * blue) + fixedHalf};
+            for (int pixel{0}; pixel < blockSide; ++pixel) {
+                const int base{lumaRow[col + pixel] << fixedShift};
+                std::uint8_t* rgbOut{out + (static_cast<std::ptrdiff_t>(col + pixel) * channels)};
+                rgbOut[0] = toByte(base + redTerm);
+                rgbOut[1] = toByte(base + greenTerm);
+                rgbOut[2] = toByte(base + blueTerm);
+            }
+        }
+    }
+}
 
 bool isEven(int value) noexcept {
     return (value & evenMask) == 0;
@@ -135,14 +181,17 @@ std::optional<PreprocessMethod> PreprocessMethod::create(MethodKind kind, Source
         built.frameView =
             cv::Mat(nv12Rows(source.size.height), source.size.width, CV_8UC1, source.buffer.data(),
                     static_cast<std::size_t>(source.size.width));
+        built.lumaView = built.frameView.rowRange(0, source.size.height);
+        built.chromaView = built.frameView.rowRange(source.size.height, built.frameView.rows);
         built.placed =
             built.targetView(cv::Rect{layout->left, layout->top, scaled.width, scaled.height});
         built.smallRgb = cv::Mat(scaled.height, scaled.width, CV_8UC3);
         built.fullRgb = cv::Mat(source.size.height, source.size.width, CV_8UC3);
         return std::optional<PreprocessMethod>{std::move(built)};
     }
+    // The camera reports full range, so the application passes fullRange = true.
     const LetterboxConfig config{source.size, source.size.width, defaultModelSize,
-                                 Rotation::Rotate180, false};
+                                 Rotation::Rotate180, true};
     if (kind == MethodKind::RgaAuto) {
         built.kernelChoice = RgaLetterbox::create(config, log);
         if (!built.kernelChoice) {
@@ -196,7 +245,11 @@ bool PreprocessMethod::runCpu() {
         return false;
     }
     // The order of rk3588_common.model_io.preprocess: convert at full size, then scale.
-    cv::cvtColor(frameView, fullRgb, cv::COLOR_YUV2RGB_NV12);
+    // The frame is BT.601 full range. cv::COLOR_YUV2RGB_NV12 decodes limited range only, so one
+    // pass over the planes does the conversion, on the threads that OpenCV is set to.
+    cv::parallel_for_(cv::Range(0, fullRgb.rows), [this](const cv::Range& rows) {
+        convertRows(lumaView, chromaView, fullRgb, rows);
+    });
     cv::resize(fullRgb, smallRgb, smallRgb.size(), 0.0, 0.0, cv::INTER_LINEAR);
     // Same size and type as `placed`, so the rotation writes into the target.
     cv::rotate(smallRgb, placed, cv::ROTATE_180);

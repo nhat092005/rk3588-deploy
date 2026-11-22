@@ -2,8 +2,10 @@
 
 ``bench_preprocess --dump DIR`` writes ``frame.nv12`` (the input) and
 one ``<label>.rgb`` (640x640x3, raw) per method. The reference is the
-NV12 frame in limited range (what the RGA decodes), to BGR, rotated 180
-degrees, then ``preprocess`` (Ultralytics val LetterBox).
+NV12 frame in full range (what the camera reports), to BGR with the
+colour of each 2x2 block repeated (as the CPU method does, unlike the
+linear scaling of check_letterbox.py), rotated 180 degrees, then
+``preprocess`` (Ultralytics val LetterBox).
 
 Per method it checks the layout and prints the difference:
 
@@ -25,7 +27,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from check_letterbox import BIG_DIFF, nv12_to_bgr
+from check_letterbox import BIG_DIFF
 
 from rk3588_common.model_io import IMGSZ, preprocess
 
@@ -43,12 +45,30 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def nv12_full_to_bgr(yuv: np.ndarray) -> np.ndarray:
+    """Convert NV12 (rows = 3/2 height) to BGR, BT.601 full range.
+
+    The Cb Cr of each 2x2 block is repeated for its four pixels.
+    """
+    height = yuv.shape[0] * 2 // 3
+    luma = yuv[:height].astype(np.float32)
+    chroma = yuv[height:].reshape(height // 2, -1, 2)
+    chroma = chroma.repeat(2, axis=0).repeat(2, axis=1).astype(np.float32)
+    blue_diff = chroma[..., 0] - 128.0
+    red_diff = chroma[..., 1] - 128.0
+    red = luma + 1.402 * red_diff
+    green = luma - 0.344136 * blue_diff - 0.714136 * red_diff
+    blue = luma + 1.772 * blue_diff
+    bgr = np.stack([blue, green, red], axis=2)
+    return np.clip(np.rint(bgr), 0, 255).astype(np.uint8)
+
+
 def reference_output(dump: Path, width: int, height: int) -> np.ndarray:
     """Return the expected (640, 640, 3) RGB image of the frame."""
     raw = np.fromfile(dump / FRAME, dtype=np.uint8)
     rows = height * 3 // 2
     yuv = raw[: rows * width].reshape(rows, width)
-    bgr = cv2.rotate(nv12_to_bgr(yuv, full_range=False), ROTATION)
+    bgr = cv2.rotate(nv12_full_to_bgr(yuv), ROTATION)
     return preprocess(bgr)[0][0]
 
 

@@ -153,7 +153,7 @@ Cross-compile only. Run on the board with the frequencies locked (`sh/env/lock_f
 
 | Bench | Measures |
 |---|---|
-| `bench_preprocess` | Stage 1 (rotate, scale, NV12 to RGB, place into 640x640): `cv::resize` on 1 and 8 threads (`cv1`, `cv8`: the order of `model_io.preprocess`), RGA2, RGA3_0, RGA3_1 and the kernel's choice. Latency p50, p95, p99, CPU time per frame, pixel difference to `cv1`. `--dump DIR` writes the input frame and each output for `check/check_bench_preprocess.py` |
+| `bench_preprocess` | Stage 1 (rotate, scale, NV12 to RGB, place into 640x640): on a BT.601 full range frame (what the camera reports): CPU on 1 and 8 threads (`cv1`, `cv8`: one-pass colour conversion, `cv::resize`, `cv::rotate`, in the order of `model_io.preprocess`), RGA2, RGA3_0, RGA3_1 (two RGA calls each: colour conversion, then scale and rotate) and the kernel's choice. Latency p50, p95, p99, CPU time per frame, pixel difference to `cv1`. `--dump DIR` writes the input frame and each output for `check/check_bench_preprocess.py` |
 
 ## Tools
 

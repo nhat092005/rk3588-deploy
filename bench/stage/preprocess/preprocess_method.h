@@ -18,7 +18,7 @@
 
 /** @brief The ways to do the stage 1 job that the bench times. */
 enum class MethodKind : std::uint8_t {
-    /** cv::cvtColor, cv::resize, cv::rotate on one thread. */
+    /** One-pass colour conversion (full range), cv::resize, cv::rotate on one thread. */
     Cv1,
     /** The same on 8 threads. */
     Cv8,
@@ -138,6 +138,8 @@ private:
     int threads{1};
     // CPU work: the NV12 frame, the scratch images and where the result goes in the target.
     cv::Mat frameView;
+    cv::Mat lumaView;
+    cv::Mat chromaView;
     cv::Mat fullRgb;
     cv::Mat smallRgb;
     cv::Mat placed;
