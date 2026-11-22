@@ -3,7 +3,7 @@
 #include "json_writer.h"
 
 namespace {
-constexpr int schemaVersion{1};
+constexpr int schemaVersion{2};
 
 void writeFreq(JsonWriter& json, const FreqState& state) {
     json.beginObject();
@@ -47,6 +47,22 @@ void writeMethod(JsonWriter& json, const MethodResult& result) {
     json.number(result.timing.latency.p99);
     json.key("cpu_ms_per_frame");
     json.number(result.timing.cpuMsPerFrame);
+    json.key("system_cpu_percent");
+    json.number(result.timing.systemCpuPercent);
+    if (result.timing.pacing) {
+        json.key("achieved_fps");
+        json.number(result.timing.pacing->achievedFps);
+        json.key("frames");
+        json.integer(result.timing.pacing->frames);
+        json.key("late_frames");
+        json.integer(result.timing.pacing->lateFrames);
+    }
+    if (result.timing.npu) {
+        json.key("npu_runs");
+        json.integer(result.timing.npu->runs);
+        json.key("npu_p50_ms");
+        json.number(result.timing.npu->p50Ms);
+    }
     if (result.difference) {
         json.key("diff_mean");
         json.number(result.difference->mean);
@@ -66,6 +82,10 @@ void writePoint(JsonWriter& json, const PointResult& point) {
     json.integer(point.source.height);
     json.key("target");
     json.integer(point.target);
+    if (point.fps) {
+        json.key("fps");
+        json.integer(*point.fps);
+    }
     if (!point.error.empty()) {
         json.key("error");
         json.text(point.error);
@@ -96,11 +116,27 @@ std::string resultJson(const RunInfo& info, const std::vector<PointResult>& poin
     json.key("heap");
     json.text(info.heap);
     json.key("background");
-    json.text("rest");
+    json.text(info.background);
+    if (!info.npuModel.empty()) {
+        json.key("npu_model");
+        json.text(info.npuModel);
+        json.key("npu_cores");
+        json.text(info.npuCores);
+        if (info.npuAlone) {
+            json.key("npu_alone_runs");
+            json.integer(info.npuAlone->runs);
+            json.key("npu_alone_p50_ms");
+            json.number(info.npuAlone->p50Ms);
+        }
+    }
     json.key("runs");
     json.integer(info.runs);
     json.key("warmup");
     json.integer(info.warmup);
+    if (info.sweep == "fps") {
+        json.key("seconds");
+        json.integer(info.seconds);
+    }
     json.key("opencv");
     json.text(info.opencv);
     json.key("opencv_build");
