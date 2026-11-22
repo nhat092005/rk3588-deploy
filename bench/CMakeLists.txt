@@ -55,5 +55,6 @@ add_bench(
     bench_dump_lib
     bench_json_lib
     bench_platform_lib
+    bench_npu_load_lib
     bench_preprocess_lib
 )
