@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <fstream>
+#include <ios>
 #include <utility>
 
 #include <opencv2/core/utility.hpp>
@@ -148,8 +150,10 @@ cv::Mat nv12View(SourceFrame& frame) {
                    static_cast<std::size_t>(frame.size.width));
 }
 
-std::optional<SourceFrame> makeSourceFrame(Pattern pattern, ImageSize size, std::string_view heap,
-                                           const Logger& log) {
+namespace {
+// An NV12 frame of `size` in the heap, not yet filled. Returns empty (logged) when the size is
+// rejected or the allocation fails.
+std::optional<SourceFrame> allocateFrame(ImageSize size, std::string_view heap, const Logger& log) {
     if (size.width < minSide || size.height < minSide || !isEven(size.width) ||
         !isEven(size.height) || size.width % strideAlignment != 0) {
         log.error("bad frame size ", size.width, "x", size.height,
@@ -167,13 +171,52 @@ std::optional<SourceFrame> makeSourceFrame(Pattern pattern, ImageSize size, std:
     if (!image) {
         return std::nullopt;
     }
-    cv::Mat view(nv12Rows(size.height), size.width, CV_8UC1, buffer->data(),
-                 static_cast<std::size_t>(size.width));
-    fillNv12(pattern, view, size);
-    if (!buffer->endCpuAccess()) {
+    return SourceFrame{std::move(*buffer), std::move(*image), size};
+}
+} // namespace
+
+std::optional<SourceFrame> makeSourceFrame(Pattern pattern, ImageSize size, std::string_view heap,
+                                           const Logger& log) {
+    std::optional<SourceFrame> frame{allocateFrame(size, heap, log)};
+    if (!frame) {
         return std::nullopt;
     }
-    return SourceFrame{std::move(*buffer), std::move(*image), size};
+    cv::Mat view{nv12View(*frame)};
+    fillNv12(pattern, view, size);
+    if (!frame->buffer.endCpuAccess()) {
+        return std::nullopt;
+    }
+    return frame;
+}
+
+std::optional<SourceFrame> loadSourceFrame(const std::string& path, ImageSize size,
+                                           std::string_view heap, const Logger& log) {
+    std::optional<SourceFrame> frame{allocateFrame(size, heap, log)};
+    if (!frame) {
+        return std::nullopt;
+    }
+    const cv::Mat view{nv12View(*frame)};
+    const auto bytes{static_cast<std::streamsize>(view.total())};
+    std::ifstream file{path, std::ios::binary | std::ios::ate};
+    if (!file) {
+        log.error(path, ": cannot open the file");
+        return std::nullopt;
+    }
+    if (file.tellg() != bytes) {
+        log.error(path, ": ", static_cast<long long>(file.tellg()), " bytes, an NV12 frame of ",
+                  size.width, "x", size.height, " has ", static_cast<long long>(bytes));
+        return std::nullopt;
+    }
+    file.seekg(0);
+    file.read(reinterpret_cast<char*>(view.data), bytes);
+    if (!file) {
+        log.error(path, ": cannot read the file");
+        return std::nullopt;
+    }
+    if (!frame->buffer.endCpuAccess()) {
+        return std::nullopt;
+    }
+    return frame;
 }
 
 std::optional<PreprocessMethod> PreprocessMethod::create(MethodKind kind, SourceFrame& source,

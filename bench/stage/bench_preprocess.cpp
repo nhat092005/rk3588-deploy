@@ -3,7 +3,7 @@
 // Usage: bench_preprocess [--size WxH] [--target N] [--pattern gradient|bars|noise] [--runs N]
 //                         [--warmup N] [--heap reserved|system] [--dump DIR]
 //                         [--sweep source|output|fps] [--seconds N] [--json FILE]
-//                         [--npu MODEL] [--npu-cores auto|012]
+//                         [--npu MODEL] [--npu-cores auto|012] [--input FILE.nv12]
 // The frame is NV12 in BT.601 full range, what the camera of the board reports: the RGA takes two
 // calls (colour conversion into a staging buffer, then scale and rotate), as in the application.
 // Defaults: 3840x2160 into 640x640, gradient, 300 runs after 30 warmup runs, the "reserved" heap
@@ -25,6 +25,9 @@
 // the board before and after the run. --dump DIR (one point only, the folder must exist) writes
 // frame.nv12 and one <label>.rgb per method (raw): tools/check/check_bench_preprocess.py compares
 // them with rk3588_common.model_io.
+// --input FILE.nv12 reads the frame from a file (width * height * 3 / 2 bytes, --size gives
+// the size, no --pattern, no --sweep source) instead of a synthetic one: the accuracy flow runs the
+// six methods on real pictures this way, with --dump, --runs 1 and --warmup 0.
 // Exit code 0 when no method failed (a refusal is a result), 1 when one failed, 2 on a bad command
 // line.
 #include <algorithm>
@@ -80,6 +83,8 @@ struct Options {
     int target{defaultModelSize};
     Sweep sweep{Sweep::None};
     Pattern pattern{Pattern::Gradient};
+    bool patternGiven{false};
+    std::string_view inputPath; // empty: a synthetic frame
     int runs{defaultRuns};
     int warmup{defaultWarmup};
     int seconds{defaultSeconds};
@@ -194,7 +199,12 @@ bool applyOption(Options& options, const Argument& argument) noexcept {
     if (name == "--pattern") {
         const std::optional<Pattern> pattern{parsePattern(value)};
         options.pattern = pattern.value_or(options.pattern);
+        options.patternGiven = true;
         return pattern.has_value();
+    }
+    if (name == "--input") {
+        options.inputPath = value;
+        return !value.empty();
     }
     if (name == "--runs" || name == "--warmup") {
         const std::optional<int> count{readInt(value)};
@@ -223,7 +233,8 @@ std::optional<Options> parseOptions(const std::vector<const char*>& args, const 
             log.error("usage: bench_preprocess [--size WxH] [--target N] ",
                       "[--pattern gradient|bars|noise] [--runs N] [--warmup N] ",
                       "[--heap reserved|system] [--dump DIR] [--sweep source|output|fps] ",
-                      "[--seconds N] [--json FILE] [--npu MODEL] [--npu-cores auto|012]");
+                      "[--seconds N] [--json FILE] [--npu MODEL] [--npu-cores auto|012] ",
+                      "[--input FILE.nv12]");
             return std::nullopt;
         }
     }
@@ -233,6 +244,10 @@ std::optional<Options> parseOptions(const std::vector<const char*>& args, const 
     }
     if (options.sweep != Sweep::None && !options.dumpDir.empty()) {
         log.error("--dump covers one point: it cannot go with --sweep");
+        return std::nullopt;
+    }
+    if (!options.inputPath.empty() && (options.patternGiven || options.sweep == Sweep::Source)) {
+        log.error("--input is one frame of --size: it cannot go with --pattern or --sweep source");
         return std::nullopt;
     }
     return options;
@@ -467,8 +482,10 @@ PointResult measurePoint(const Point& point, const Options& options, NpuLoad* np
                          const Logger& log) {
     PointResult result{point.source, point.target, point.fps, {}, {}};
     log.info("point: frame ", point.source.width, "x", point.source.height, " into ", point.target,
-             "x", point.target, " pattern=", patternName(options.pattern), " heap=", options.heap,
-             " warmup=", options.warmup);
+             "x", point.target, " ",
+             options.inputPath.empty() ? "pattern=" + std::string{patternName(options.pattern)}
+                                       : "input=" + std::string{options.inputPath},
+             " heap=", options.heap, " warmup=", options.warmup);
     if (point.fps) {
         log.info("paced: ", *point.fps, " fps (0 is as fast as possible) for ", options.seconds,
                  " s per method");
@@ -476,7 +493,9 @@ PointResult measurePoint(const Point& point, const Options& options, NpuLoad* np
         log.info("runs=", options.runs);
     }
     std::optional<SourceFrame> frame{
-        makeSourceFrame(options.pattern, point.source, options.heap, log)};
+        options.inputPath.empty()
+            ? makeSourceFrame(options.pattern, point.source, options.heap, log)
+            : loadSourceFrame(std::string{options.inputPath}, point.source, options.heap, log)};
     if (!frame) {
         result.error = "the frame could not be made, see the log";
         return result;
@@ -552,7 +571,7 @@ int main(int argc, char** argv) {
     log.info("OpenCV ", CV_VERSION, " cpus=", cv::getNumberOfCPUs());
     RunInfo info{};
     info.sweep = sweepName(options->sweep);
-    info.pattern = patternName(options->pattern);
+    info.pattern = options->inputPath.empty() ? patternName(options->pattern) : "file";
     info.heap = options->heap;
     info.background = options->npuModel.empty() ? "rest" : "npu";
     info.npuModel = std::string{options->npuModel};

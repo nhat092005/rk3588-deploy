@@ -90,6 +90,19 @@ std::optional<SourceFrame> makeSourceFrame(Pattern pattern, ImageSize size, std:
                                            const Logger& log);
 
 /**
+ * @brief Allocates an NV12 frame and reads its bytes from a file.
+ * @param path A file of exactly `width * height * 3 / 2` bytes: the luma plane, then the
+ *        interleaved Cb Cr plane, in BT.601 full range.
+ * @param size Size in pixels, as for makeSourceFrame().
+ * @param heap The dma-heap of the frame.
+ * @param log Logger of the buffer.
+ * @return The frame, or empty when the size is rejected, the file is missing or of another size, or
+ *         the allocation fails, which is logged.
+ */
+std::optional<SourceFrame> loadSourceFrame(const std::string& path, ImageSize size,
+                                           std::string_view heap, const Logger& log);
+
+/**
  * @brief The frame as one image of `3 * height / 2` rows of `width` bytes, 1 channel, over the
  *        mapped memory (no copy).
  * @param frame The frame. The image is valid while the frame lives.
