@@ -19,3 +19,4 @@ measurements/
 | Folder | Command (on the board, frequencies locked) |
 |---|---|
 | `preprocess/2026-11-22_full-range/` | `bench_preprocess --sweep source --json sweep_source.json` and `bench_preprocess --sweep output --json sweep_output.json`. 300 runs after 30 warmup, gradient frame, 3840x2160 for the output sweep, 640x640 for the source sweep, NPU idle |
+| `preprocess/2026-11-22_fps-npu/` | `bench_preprocess --sweep fps --seconds 10 --json fps_rest.json`, and the same with `--npu resource/rknn/best-rk3588.rknn` for `fps_npu.json` (NPU running back to back, cores auto, one inference run alone first for the baseline). 3840x2160 into 640x640, 10, 30, 60, 120 FPS and as fast as possible, gradient frame, frequencies locked |
