@@ -40,7 +40,10 @@ std::optional<RgaForcedLetterbox> RgaForcedLetterbox::create(const LetterboxConf
     if (config.fullRange) {
         const std::size_t bytes{static_cast<std::size_t>(config.source.width) *
                                 static_cast<std::size_t>(config.source.height) * rgbChannels};
-        staging = DmaBuf::allocate(DmaBufConfig{lowHeap, bytes}, log);
+        // RGA2 maps memory below 4 GB only, and the "system" heap does not promise that: a run
+        // gave a refusal that did not repeat. The "reserved" heap is below 4 GB.
+        staging = DmaBuf::allocate(
+            DmaBufConfig{core == RgaCore::Rga2 ? lowHeap : defaultHeap, bytes}, log);
         if (!staging) {
             return std::nullopt;
         }
@@ -72,7 +75,9 @@ bool RgaForcedLetterbox::convertFullRange(const RgaImage& source, const RgaImage
     const IM_STATUS status{improcess(input, output, noPattern, whole, whole, noRect, noFence,
                                      nullptr, &options, IM_SYNC)};
     if (status != IM_STATUS_SUCCESS) {
-        log.error(rgaCoreName(core), " colour conversion: ", imStrError_t(status));
+        failedMessage = imStrError_t(status);
+        log.error(rgaCoreName(core), " colour conversion: ", failedMessage);
+        failedStatus = status;
         return false;
     }
     return true;
@@ -104,7 +109,9 @@ bool RgaForcedLetterbox::run(const RgaImage& source, const RgaImage& target) con
                                      noFence, nullptr, &options,
                                      IM_HAL_TRANSFORM_ROT_180 | IM_SYNC)};
     if (status != IM_STATUS_SUCCESS) {
-        log.error(rgaCoreName(core), " improcess: ", imStrError_t(status));
+        failedMessage = imStrError_t(status);
+        log.error(rgaCoreName(core), " improcess: ", failedMessage);
+        failedStatus = status;
         return false;
     }
     return true;

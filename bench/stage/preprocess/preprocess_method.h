@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -44,6 +45,29 @@ constexpr std::array<MethodKind, 6> allMethods{MethodKind::Cv1,   MethodKind::Cv
  * @return "cv1", "cv8", "R2", "R30", "R31" or "Ra".
  */
 std::string_view methodLabel(MethodKind kind) noexcept;
+
+/** @brief How a method ended. */
+enum class MethodStatus : std::uint8_t {
+    /** It ran. */
+    Ok,
+    /** The RGA driver refused the job (not supported, bad or out of range parameter). */
+    Rejected,
+    /** Anything else: a buffer, the setup or a failed call that is not a refusal. */
+    Failed
+};
+
+/**
+ * @brief The name of a status.
+ * @param status A status.
+ * @return "ok", "rejected" or "failed".
+ */
+std::string_view statusName(MethodStatus status) noexcept;
+
+/** @brief Why a method did not run, with the message of the failed call. */
+struct Failure {
+    MethodStatus status{MethodStatus::Failed};
+    std::string message;
+};
 
 /** @brief The NV12 input frame that every method reads. Move-only. */
 struct SourceFrame {
@@ -90,12 +114,13 @@ public:
      * @brief Builds a method for a frame.
      * @param kind Which method.
      * @param source The frame. It must outlive the method and not be moved.
+     * @param targetSize Side of the square RGB output in pixels (640 is the model input).
      * @param log Logger that the method keeps.
      * @return The method, or empty when the layout, a buffer or the RGA setup fails, which is
      *         logged.
      */
     static std::optional<PreprocessMethod> create(MethodKind kind, SourceFrame& source,
-                                                  const Logger& log);
+                                                  int targetSize, const Logger& log);
 
     /** @brief Which method this is. */
     MethodKind kind() const noexcept {
@@ -117,8 +142,17 @@ public:
     [[nodiscard]] bool run() noexcept;
 
     /**
+     * @brief Why the last run() or prepare() failed.
+     * @return The failure: Rejected when an RGA core refused the job, Failed otherwise. For the
+     *         kernel's choice (RgaLetterbox) the library logs the reason and only a generic text
+     *         is kept.
+     */
+    Failure failure() const;
+
+    /**
      * @brief Copies the target out, after the cache sync that a CPU read needs.
-     * @param out Receives a 640 x 640 image of 3 channels, 8 bits, in the order the NPU reads.
+     * @param out Receives a targetSize x targetSize image of 3 channels, 8 bits, in the order the
+     * NPU reads.
      * @return false when the sync fails, which is logged.
      */
     [[nodiscard]] bool copyOutput(cv::Mat& out) const;
