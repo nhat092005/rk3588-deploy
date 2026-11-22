@@ -153,7 +153,7 @@ Cross-compile only. Run on the board with the frequencies locked (`sh/env/lock_f
 
 | Bench | Measures |
 |---|---|
-| `bench_preprocess` | Stage 1 (rotate, scale, NV12 to RGB, place into 640x640): `cv::resize` on 1 and 8 threads (`cv1`, `cv8`: the order of `model_io.preprocess`), RGA2, RGA3_0, RGA3_1 and the kernel's choice. Latency p50, p95, p99, CPU time per frame, pixel difference to `cv1` |
+| `bench_preprocess` | Stage 1 (rotate, scale, NV12 to RGB, place into 640x640): `cv::resize` on 1 and 8 threads (`cv1`, `cv8`: the order of `model_io.preprocess`), RGA2, RGA3_0, RGA3_1 and the kernel's choice. Latency p50, p95, p99, CPU time per frame, pixel difference to `cv1`. `--dump DIR` writes the input frame and each output for `check/check_bench_preprocess.py` |
 
 ## Tools
 
@@ -161,6 +161,7 @@ Cross-compile only. Run on the board with the frequencies locked (`sh/env/lock_f
 |---|---|
 | `check/nv12_to_png.py` | Raw NV12 frame to PNG |
 | `check/check_letterbox.py` | RGA letterbox vs `model_io.preprocess` |
+| `check/check_bench_preprocess.py` | `bench_preprocess --dump` files vs `model_io.preprocess`: padding must be exact, difference per method |
 | `check/check_jpeg.py` | JPEG vs its NV12 source |
 | `check/check_output.py` | Files of one violation: 2 JPEGs, clip |
 | `check/check_recordings.py` | Decode every segment, count frames |

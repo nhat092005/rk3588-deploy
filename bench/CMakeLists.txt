@@ -52,5 +52,6 @@ add_bench(
     LIBS
     bench_timing_lib
     bench_frame_lib
+    bench_dump_lib
     bench_preprocess_lib
 )
