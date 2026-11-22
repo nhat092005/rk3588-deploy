@@ -1,21 +1,30 @@
 // Stage 1 bench: the preprocess job (rotate 180, scale to fit, NV12 to RGB, place into a padded
-// 640 x 640 image) on the CPU with OpenCV and on the RGA, one synthetic frame, one table.
-// Usage: bench_preprocess [--size WxH] [--pattern gradient|bars|noise] [--runs N] [--warmup N]
-//                         [--heap reserved|system] [--dump DIR]
+// square image) on the CPU with OpenCV and on the RGA, synthetic frames, one table.
+// Usage: bench_preprocess [--size WxH] [--target N] [--pattern gradient|bars|noise] [--runs N]
+//                         [--warmup N] [--heap reserved|system] [--dump DIR]
+//                         [--sweep source|output] [--json FILE]
 // The frame is NV12 in BT.601 full range, what the camera of the board reports: the RGA takes two
 // calls (colour conversion into a staging buffer, then scale and rotate), as in the application.
-// Defaults: 3840x2160, gradient, 300 runs after 30 warmup runs, the "reserved" heap (the RGA2 maps
-// only memory below 4 GB). The run is meant for a board with the frequencies locked
-// (sh/env/lock_freq.sh): the bench does not lock them and does not record the state yet.
+// Defaults: 3840x2160 into 640x640, gradient, 300 runs after 30 warmup runs, the "reserved" heap
+// (the RGA2 maps only memory below 4 GB). The run is meant for a board with the frequencies locked
+// (sh/env/lock_freq.sh): the bench does not lock them, it records their state in the JSON.
+// --sweep source measures the sizes 1280x720 to 7680x4320 into --target, --sweep output the sizes
+// 320 to 1024 from --size. Without --sweep it measures the one point of --size and --target.
 // Per method it prints the latency of one call (p50, p95, p99), the CPU time per frame of the
 // whole process (all threads, waiting not counted) and the pixel difference of the output to the
 // output of cv1 (a sanity check between methods, not the rk3588_common reference).
-// --dump DIR (the folder must exist) writes frame.nv12 and one <label>.rgb per method (640x640x3,
-// raw): tools/check/check_bench_preprocess.py compares them with rk3588_common.model_io.
-// Exit code 0 when every method ran, 1 when a method failed, 2 on a bad command line.
+// A method that the RGA driver refuses at a size is reported as "rejected" with the driver
+// message, any other failure as "failed"; the run goes on with the next method and point.
+// --json FILE writes the result: every point and method, the OpenCV build and the clock state of
+// the board before and after the run. --dump DIR (one point only, the folder must exist) writes
+// frame.nv12 and one <label>.rgb per method (raw): tools/check/check_bench_preprocess.py compares
+// them with rk3588_common.model_io.
+// Exit code 0 when no method failed (a refusal is a result), 1 when one failed, 2 on a bad command
+// line.
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cstdint>
 #include <cstddef>
 #include <cstdlib>
 #include <optional>
@@ -28,8 +37,11 @@
 #include "arguments.h"
 #include "dmabuf.h"
 #include "dump_file.h"
+#include "freq_state.h"
+#include "json_writer.h"
 #include "logger.h"
 #include "preprocess_method.h"
+#include "preprocess_result.h"
 #include "synthetic_frame.h"
 #include "timing.h"
 
@@ -40,30 +52,36 @@ constexpr int defaultHeight{2160};
 constexpr int defaultRuns{300};
 constexpr int defaultWarmup{30};
 constexpr int maxCount{100'000};
+constexpr int minTarget{16};
+constexpr int maxTarget{4096};
 constexpr int bigDifference{16}; // check_letterbox.py BIG_DIFF
 constexpr double percentOf{100.0};
 constexpr int millisPrecision{3};
 
+enum class Sweep : std::uint8_t { None, Source, Output };
+
 struct Options {
     ImageSize size{defaultWidth, defaultHeight};
+    int target{defaultModelSize};
+    Sweep sweep{Sweep::None};
     Pattern pattern{Pattern::Gradient};
     int runs{defaultRuns};
     int warmup{defaultWarmup};
     std::string_view heap{lowHeap};
-    std::string_view dumpDir; // empty: no dump
+    std::string_view dumpDir;  // empty: no dump
+    std::string_view jsonPath; // empty: no JSON file
 };
 
-// Pixel difference of one output to the reference output, over all channel values.
-struct Difference {
-    double mean{0.0};
-    double largest{0.0};
-    double bigShare{0.0}; // percent of values that differ by more than bigDifference
-};
+// The values of the sweeps (ADR section 6): every one is a multiple of 16, the width alignment of
+// an RGB888 RGA buffer.
+constexpr std::array<ImageSize, 6> sourceSweep{
+    {{1280, 720}, {1920, 1080}, {2560, 1440}, {3840, 2160}, {4224, 2376}, {7680, 4320}}};
+constexpr std::array<int, 6> outputSweep{320, 416, 512, 640, 800, 1024};
 
-struct Measurement {
-    int threads{1};
-    Percentiles latency;
-    double cpuMsPerFrame{0.0};
+// One source size and target size to measure.
+struct Point {
+    ImageSize source;
+    int target{0};
 };
 
 std::optional<int> readInt(std::string_view text) noexcept {
@@ -105,6 +123,22 @@ bool applyOption(Options& options, const Argument& argument) noexcept {
         options.size = size.value_or(options.size);
         return size.has_value();
     }
+    if (name == "--target") {
+        const std::optional<int> target{readInt(value)};
+        options.target = target.value_or(options.target);
+        return target.has_value() && *target >= minTarget && *target <= maxTarget;
+    }
+    if (name == "--sweep") {
+        if (value != "source" && value != "output") {
+            return false;
+        }
+        options.sweep = value == "source" ? Sweep::Source : Sweep::Output;
+        return true;
+    }
+    if (name == "--json") {
+        options.jsonPath = value;
+        return !value.empty();
+    }
     if (name == "--pattern") {
         const std::optional<Pattern> pattern{parsePattern(value)};
         options.pattern = pattern.value_or(options.pattern);
@@ -134,8 +168,10 @@ std::optional<Options> parseOptions(const std::vector<const char*>& args, const 
     for (std::size_t index{1}; index < args.size(); index += 2) {
         const std::string_view name{args.at(index)};
         if (index + 1 >= args.size() || !applyOption(options, Argument{name, args.at(index + 1)})) {
-            log.error("usage: bench_preprocess [--size WxH] [--pattern gradient|bars|noise] ",
-                      "[--runs N] [--warmup N] [--heap reserved|system] [--dump DIR]");
+            log.error("usage: bench_preprocess [--size WxH] [--target N] ",
+                      "[--pattern gradient|bars|noise] [--runs N] [--warmup N] ",
+                      "[--heap reserved|system] [--dump DIR] [--sweep source|output] ",
+                      "[--json FILE]");
             return std::nullopt;
         }
     }
@@ -143,7 +179,43 @@ std::optional<Options> parseOptions(const std::vector<const char*>& args, const 
         log.error("--runs must be at least 1");
         return std::nullopt;
     }
+    if (options.sweep != Sweep::None && !options.dumpDir.empty()) {
+        log.error("--dump covers one point: it cannot go with --sweep");
+        return std::nullopt;
+    }
     return options;
+}
+
+std::vector<Point> pointsOf(const Options& options) {
+    std::vector<Point> points;
+    switch (options.sweep) {
+    case Sweep::Source:
+        for (const ImageSize size : sourceSweep) {
+            points.push_back(Point{size, options.target});
+        }
+        break;
+    case Sweep::Output:
+        for (const int target : outputSweep) {
+            points.push_back(Point{options.size, target});
+        }
+        break;
+    case Sweep::None:
+        points.push_back(Point{options.size, options.target});
+        break;
+    }
+    return points;
+}
+
+std::string_view sweepName(Sweep sweep) noexcept {
+    switch (sweep) {
+    case Sweep::Source:
+        return "source";
+    case Sweep::Output:
+        return "output";
+    case Sweep::None:
+        break;
+    }
+    return "none";
 }
 
 // Times one method: warmup, then `runs` calls one by one for the latency, and the CPU time of
@@ -193,24 +265,30 @@ bool dump(std::string_view dir, std::string_view name, const cv::Mat& image, con
     return writeImage(path, image, log);
 }
 
-void report(const Logger& log, MethodKind kind, const Measurement& timing,
-            const std::optional<Difference>& difference) {
-    log.info(methodLabel(kind), " threads=", timing.threads,
+void report(const Logger& log, const MethodResult& result) {
+    if (result.status != MethodStatus::Ok) {
+        log.warn(methodLabel(result.kind), " ", statusName(result.status), ": ", result.message);
+        return;
+    }
+    const Measurement& timing{result.timing};
+    log.info(methodLabel(result.kind), " threads=", timing.threads,
              " p50=", Fixed{timing.latency.p50, millisPrecision},
              " p95=", Fixed{timing.latency.p95, millisPrecision},
              " p99=", Fixed{timing.latency.p99, millisPrecision},
              " ms cpu=", Fixed{timing.cpuMsPerFrame, millisPrecision}, " ms/frame");
-    if (difference) {
-        log.info(methodLabel(kind), " diff vs cv1: mean=", Fixed{difference->mean, millisPrecision},
-                 " max=", Fixed{difference->largest, 0}, " over ", bigDifference, ": ",
-                 Fixed{difference->bigShare, millisPrecision}, " %");
+    if (result.difference) {
+        log.info(methodLabel(result.kind),
+                 " diff vs cv1: mean=", Fixed{result.difference->mean, millisPrecision},
+                 " max=", Fixed{result.difference->largest, 0}, " over ", bigDifference, ": ",
+                 Fixed{result.difference->bigShare, millisPrecision}, " %");
     }
 }
 
 // The lines of the OpenCV build report that decide the CPU side: the parallel backend and the
 // SIMD (NEON) baseline and dispatch lists.
-void logBuildFacts(const Logger& log) {
+std::vector<std::string> buildFacts() {
     constexpr std::array<std::string_view, 3> keys{"Parallel framework", "Baseline", "Dispatched"};
+    std::vector<std::string> facts;
     const std::string& report{cv::getBuildInformation()};
     std::size_t begin{0};
     while (begin < report.size()) {
@@ -218,12 +296,82 @@ void logBuildFacts(const Logger& log) {
         const std::string_view line{std::string_view{report}.substr(begin, end - begin)};
         for (const std::string_view key : keys) {
             if (line.find(key) != std::string_view::npos) {
-                log.info("cv build:", line);
+                facts.emplace_back(line);
                 break;
             }
         }
         begin = end + 1;
     }
+    return facts;
+}
+
+// Runs the six methods on one frame size and target size.
+PointResult measurePoint(const Point& point, const Options& options, const Logger& log) {
+    PointResult result{point.source, point.target, {}, {}};
+    log.info("point: frame ", point.source.width, "x", point.source.height, " into ", point.target,
+             "x", point.target, " pattern=", patternName(options.pattern), " heap=", options.heap,
+             " runs=", options.runs, " warmup=", options.warmup);
+    std::optional<SourceFrame> frame{
+        makeSourceFrame(options.pattern, point.source, options.heap, log)};
+    if (!frame) {
+        result.error = "the frame could not be made, see the log";
+        return result;
+    }
+    const bool dumping{!options.dumpDir.empty()};
+    if (dumping && !dump(options.dumpDir, "frame.nv12", nv12View(*frame), log)) {
+        result.error = "the dump of the frame failed";
+        return result;
+    }
+    cv::Mat reference;
+    for (const MethodKind kind : allMethods) {
+        MethodResult entry{};
+        entry.kind = kind;
+        std::optional<PreprocessMethod> method{
+            PreprocessMethod::create(kind, *frame, point.target, log)};
+        if (!method) {
+            entry.status = MethodStatus::Failed;
+            entry.message = "the setup failed (a buffer or the RGA setup), see the log";
+            report(log, entry);
+            result.methods.push_back(std::move(entry));
+            continue;
+        }
+        const std::optional<Measurement> timing{measure(*method, options)};
+        cv::Mat output;
+        if (!timing) {
+            const Failure failure{method->failure()};
+            entry.status = failure.status;
+            entry.message = failure.message;
+        } else if (!method->copyOutput(output)) {
+            entry.status = MethodStatus::Failed;
+            entry.message = "the cache sync before the copy of the output failed";
+        } else {
+            entry.timing = *timing;
+        }
+        if (entry.status == MethodStatus::Ok) {
+            if (kind == MethodKind::Cv1) {
+                reference = output;
+            } else if (!reference.empty()) {
+                entry.difference = compare(reference, output);
+            }
+            if (dumping &&
+                !dump(options.dumpDir, std::string{methodLabel(kind)} + ".rgb", output, log)) {
+                entry.status = MethodStatus::Failed;
+                entry.message = "writing the dump failed";
+            }
+        }
+        report(log, entry);
+        result.methods.push_back(std::move(entry));
+    }
+    return result;
+}
+
+bool anyFailed(const std::vector<PointResult>& points) {
+    return std::any_of(points.begin(), points.end(), [](const PointResult& point) {
+        return !point.error.empty() || std::any_of(point.methods.begin(), point.methods.end(),
+                                                   [](const MethodResult& method) {
+                                                       return method.status == MethodStatus::Failed;
+                                                   });
+    });
 }
 } // namespace
 
@@ -234,44 +382,30 @@ int main(int argc, char** argv) {
         return exitUsage;
     }
     log.info("OpenCV ", CV_VERSION, " cpus=", cv::getNumberOfCPUs());
-    logBuildFacts(log);
-    log.info("frame ", options->size.width, "x", options->size.height,
-             " pattern=", patternName(options->pattern), " heap=", options->heap,
-             " runs=", options->runs, " warmup=", options->warmup);
-    std::optional<SourceFrame> frame{
-        makeSourceFrame(options->pattern, options->size, options->heap, log)};
-    if (!frame) {
-        return EXIT_FAILURE;
+    RunInfo info{};
+    info.sweep = sweepName(options->sweep);
+    info.pattern = patternName(options->pattern);
+    info.heap = options->heap;
+    info.runs = options->runs;
+    info.warmup = options->warmup;
+    info.opencv = CV_VERSION;
+    info.build = buildFacts();
+    for (const std::string& line : info.build) {
+        log.info("cv build:", line);
     }
-    bool allRan{true};
-    const bool dumping{!options->dumpDir.empty()};
-    if (dumping && !dump(options->dumpDir, "frame.nv12", nv12View(*frame), log)) {
-        return EXIT_FAILURE;
+    info.before = readFreqState();
+    log.info("frequencies locked: ", info.before.locked ? "yes" : "no");
+    std::vector<PointResult> points;
+    for (const Point& point : pointsOf(*options)) {
+        points.push_back(measurePoint(point, *options, log));
     }
-    cv::Mat reference;
-    for (const MethodKind kind : allMethods) {
-        std::optional<PreprocessMethod> method{PreprocessMethod::create(kind, *frame, log)};
-        if (!method) {
-            log.warn(methodLabel(kind), " skipped");
-            continue;
-        }
-        const std::optional<Measurement> timing{measure(*method, *options)};
-        cv::Mat output;
-        if (!timing || !method->copyOutput(output)) {
-            log.error(methodLabel(kind), " failed");
-            allRan = false;
-            continue;
-        }
-        if (kind == MethodKind::Cv1) {
-            reference = output;
-        }
-        if (dumping &&
-            !dump(options->dumpDir, std::string{methodLabel(kind)} + ".rgb", output, log)) {
-            allRan = false;
-        }
-        report(log, kind, *timing,
-               reference.empty() ? std::nullopt
-                                 : std::optional<Difference>{compare(reference, output)});
+    info.after = readFreqState();
+    if (info.before.locked != info.after.locked) {
+        log.warn("the frequency lock changed during the run");
     }
-    return allRan ? EXIT_SUCCESS : EXIT_FAILURE;
+    bool written{true};
+    if (!options->jsonPath.empty()) {
+        written = writeTextFile(std::string{options->jsonPath}, resultJson(info, points), log);
+    }
+    return anyFailed(points) || !written ? EXIT_FAILURE : EXIT_SUCCESS;
 }
