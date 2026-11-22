@@ -66,6 +66,14 @@ std::optional<SourceFrame> makeSourceFrame(Pattern pattern, ImageSize size, std:
                                            const Logger& log);
 
 /**
+ * @brief The frame as one image of `3 * height / 2` rows of `width` bytes, 1 channel, over the
+ *        mapped memory (no copy).
+ * @param frame The frame. The image is valid while the frame lives.
+ * @return The view, continuous.
+ */
+cv::Mat nv12View(SourceFrame& frame);
+
+/**
  * @brief One way to turn the frame into the 640 x 640 RGB model input: rotate 180 degrees, scale
  *        to fit, place at the centre of a target that is padded once. Owns its own target buffer
  *        (the "reserved" heap, as the NPU input in the application), so every method can be

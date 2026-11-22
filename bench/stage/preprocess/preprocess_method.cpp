@@ -76,6 +76,11 @@ std::string_view methodLabel(MethodKind kind) noexcept {
     return "Ra";
 }
 
+cv::Mat nv12View(SourceFrame& frame) {
+    return cv::Mat(nv12Rows(frame.size.height), frame.size.width, CV_8UC1, frame.buffer.data(),
+                   static_cast<std::size_t>(frame.size.width));
+}
+
 std::optional<SourceFrame> makeSourceFrame(Pattern pattern, ImageSize size, std::string_view heap,
                                            const Logger& log) {
     if (size.width < minSide || size.height < minSide || !isEven(size.width) ||

@@ -1,13 +1,15 @@
 // Stage 1 bench: the preprocess job (rotate 180, scale to fit, NV12 to RGB, place into a padded
 // 640 x 640 image) on the CPU with OpenCV and on the RGA, one synthetic frame, one table.
 // Usage: bench_preprocess [--size WxH] [--pattern gradient|bars|noise] [--runs N] [--warmup N]
-//                         [--heap reserved|system]
+//                         [--heap reserved|system] [--dump DIR]
 // Defaults: 3840x2160, gradient, 300 runs after 30 warmup runs, the "reserved" heap (the RGA2 maps
 // only memory below 4 GB). The run is meant for a board with the frequencies locked
 // (sh/env/lock_freq.sh): the bench does not lock them and does not record the state yet.
 // Per method it prints the latency of one call (p50, p95, p99), the CPU time per frame of the
 // whole process (all threads, waiting not counted) and the pixel difference of the output to the
 // output of cv1 (a sanity check between methods, not the rk3588_common reference).
+// --dump DIR (the folder must exist) writes frame.nv12 and one <label>.rgb per method (640x640x3,
+// raw): tools/check/check_bench_preprocess.py compares them with rk3588_common.model_io.
 // Exit code 0 when every method ran, 1 when a method failed, 2 on a bad command line.
 #include <algorithm>
 #include <array>
@@ -23,6 +25,7 @@
 
 #include "arguments.h"
 #include "dmabuf.h"
+#include "dump_file.h"
 #include "logger.h"
 #include "preprocess_method.h"
 #include "synthetic_frame.h"
@@ -45,6 +48,7 @@ struct Options {
     int runs{defaultRuns};
     int warmup{defaultWarmup};
     std::string_view heap{lowHeap};
+    std::string_view dumpDir; // empty: no dump
 };
 
 // Pixel difference of one output to the reference output, over all channel values.
@@ -116,6 +120,10 @@ bool applyOption(Options& options, const Argument& argument) noexcept {
         options.heap = value;
         return true;
     }
+    if (name == "--dump") {
+        options.dumpDir = value;
+        return !value.empty();
+    }
     return false;
 }
 
@@ -125,7 +133,7 @@ std::optional<Options> parseOptions(const std::vector<const char*>& args, const 
         const std::string_view name{args.at(index)};
         if (index + 1 >= args.size() || !applyOption(options, Argument{name, args.at(index + 1)})) {
             log.error("usage: bench_preprocess [--size WxH] [--pattern gradient|bars|noise] ",
-                      "[--runs N] [--warmup N] [--heap reserved|system]");
+                      "[--runs N] [--warmup N] [--heap reserved|system] [--dump DIR]");
             return std::nullopt;
         }
     }
@@ -175,6 +183,12 @@ Difference compare(const cv::Mat& reference, const cv::Mat& other) {
     result.bigShare = percentOf * static_cast<double>(cv::countNonZero(big)) /
                       static_cast<double>(values.total());
     return result;
+}
+
+// Writes a file of the dump folder: <dir>/<name>.
+bool dump(std::string_view dir, std::string_view name, const cv::Mat& image, const Logger& log) {
+    const std::string path{std::string{dir} + "/" + std::string{name}};
+    return writeImage(path, image, log);
 }
 
 void report(const Logger& log, MethodKind kind, const Measurement& timing,
@@ -228,6 +242,10 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
     bool allRan{true};
+    const bool dumping{!options->dumpDir.empty()};
+    if (dumping && !dump(options->dumpDir, "frame.nv12", nv12View(*frame), log)) {
+        return EXIT_FAILURE;
+    }
     cv::Mat reference;
     for (const MethodKind kind : allMethods) {
         std::optional<PreprocessMethod> method{PreprocessMethod::create(kind, *frame, log)};
@@ -244,6 +262,10 @@ int main(int argc, char** argv) {
         }
         if (kind == MethodKind::Cv1) {
             reference = output;
+        }
+        if (dumping &&
+            !dump(options->dumpDir, std::string{methodLabel(kind)} + ".rgb", output, log)) {
+            allRan = false;
         }
         report(log, kind, *timing,
                reference.empty() ? std::nullopt
