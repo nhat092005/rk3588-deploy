@@ -166,6 +166,7 @@ Cross-compile only. Run on the board with the frequencies locked (`sh/env/lock_f
 | `check/check_jpeg.py` | JPEG vs its NV12 source |
 | `check/check_output.py` | Files of one violation: 2 JPEGs, clip |
 | `check/check_recordings.py` | Decode every segment, count frames |
+| `plot/plot_bench_preprocess.py` | Figures and tables of `bench_preprocess` from its JSON (needs matplotlib: `make sync` in the meta-repo, run with its `.venv`) |
 | `generate/make_label_font.py` | Write `label_font.h` |
 | `generate/make_postprocess_fixture.py` | Post-processing test data |
 | `generate/make_tracker_fixture.py` | Tracker test data (needs `lap`: `make sync`) |
