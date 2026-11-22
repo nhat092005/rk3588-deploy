@@ -3,10 +3,12 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 
 #include "dmabuf.h"
+#include "im2d.hpp"
 #include "logger.h"
 #include "rga.h"
 
@@ -20,7 +22,8 @@ enum class RgaCore : std::uint8_t { Rga2, Rga30, Rga31 };
  * RgaLetterbox leaves the core to the kernel, which is what the application does. The bench needs
  * each core alone, so this class passes the core to the same improcess calls. A full range source
  * takes two calls, as in RgaLetterbox: NV12 to RGB into a staging buffer, then scale, rotate and
- * place. The staging buffer is in the lowHeap so that RGA2 can map it. Both calls use the core.
+ * place. The staging buffer is in the lowHeap for RGA2, which maps memory below 4 GB only, and in
+ * the defaultHeap for the RGA3 cores, as in RgaLetterbox. Both calls use the core.
  */
 class RgaForcedLetterbox {
 public:
@@ -51,6 +54,23 @@ public:
      */
     [[nodiscard]] bool run(const RgaImage& source, const RgaImage& target) const noexcept;
 
+    /**
+     * @brief The status of the last call that failed.
+     * @return The RGA status, IM_STATUS_SUCCESS when no call has failed.
+     */
+    IM_STATUS lastStatus() const noexcept {
+        return failedStatus;
+    }
+
+    /**
+     * @brief The message of the last call that failed. The RGA library gives a message once, so it
+     *        is kept here.
+     * @return The message, empty when no call has failed.
+     */
+    const std::string& lastMessage() const noexcept {
+        return failedMessage;
+    }
+
 private:
     RgaForcedLetterbox(RgaLetterbox&& converter, const LetterboxConfig& config, RgaCore chosen,
                        Logger logger, std::optional<DmaBuf> stagingBuffer,
@@ -70,6 +90,8 @@ private:
     // The buffer is declared before its RGA handle, which is released first.
     std::optional<DmaBuf> staging;
     std::optional<RgaImage> stagingImage;
+    mutable IM_STATUS failedStatus{IM_STATUS_SUCCESS};
+    mutable std::string failedMessage;
 };
 
 /**

@@ -35,7 +35,8 @@ Options and the config file: `resource/config/README.md`.
 | `cmake/` | `build_config.cmake`, toolchain, SDK finder |
 | `sh/` | Board scripts: `env/` setup and tests, `stream/` live view, `record/` MP4 capture |
 | `tools/` | PC scripts, [below](#tools) |
-| `python/`, `measurements/` | Empty for now |
+| `python/` | Empty for now |
+| `measurements/` | Results of the benches (JSON of each run on the board, not tracked), [layout](measurements/README.md) |
 
 ## What to build
 
@@ -153,7 +154,7 @@ Cross-compile only. Run on the board with the frequencies locked (`sh/env/lock_f
 
 | Bench | Measures |
 |---|---|
-| `bench_preprocess` | Stage 1 (rotate, scale, NV12 to RGB, place into 640x640): on a BT.601 full range frame (what the camera reports): CPU on 1 and 8 threads (`cv1`, `cv8`: one-pass colour conversion, `cv::resize`, `cv::rotate`, in the order of `model_io.preprocess`), RGA2, RGA3_0, RGA3_1 (two RGA calls each: colour conversion, then scale and rotate) and the kernel's choice. Latency p50, p95, p99, CPU time per frame, pixel difference to `cv1`. `--dump DIR` writes the input frame and each output for `check/check_bench_preprocess.py` |
+| `bench_preprocess` | Stage 1 (rotate, scale, NV12 to RGB, place into 640x640): on a BT.601 full range frame (what the camera reports): CPU on 1 and 8 threads (`cv1`, `cv8`: one-pass colour conversion, `cv::resize`, `cv::rotate`, in the order of `model_io.preprocess`), RGA2, RGA3_0, RGA3_1 (two RGA calls each: colour conversion, then scale and rotate) and the kernel's choice. Latency p50, p95, p99, CPU time per frame, pixel difference to `cv1`. `--dump DIR` writes the input frame and each output for `check/check_bench_preprocess.py`. `--sweep source\|output` measures the source sizes (1280x720 to 7680x4320) or the square output sizes (320 to 1024). `--json FILE` writes every point and method, the OpenCV build and the clock state of the board before and after (read from sysfs, `locked` when every governor is `performance`). A method that the RGA driver refuses at a size is `rejected` with the driver message |
 
 ## Tools
 

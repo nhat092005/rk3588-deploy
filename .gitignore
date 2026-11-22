@@ -9,3 +9,7 @@ __pycache__/
 
 # RKNN
 resource/rknn/
+
+# Measurements
+measurements/*
+!measurements/README.md

@@ -8,6 +8,8 @@
 #include <opencv2/core/utility.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include "im2d.hpp"
+
 namespace {
 constexpr int paddingValue{114}; // rk3588_common.model_io, the value RgaLetterbox pads with
 constexpr int cpuThreads{8};
@@ -18,8 +20,15 @@ constexpr int evenMask{1};
 constexpr int nv12Numerator{3};
 constexpr int nv12Denominator{2};
 
-constexpr std::size_t targetBytes{static_cast<std::size_t>(defaultModelSize) *
-                                  static_cast<std::size_t>(defaultModelSize) * channels};
+std::size_t targetBytes(int targetSize) noexcept {
+    return static_cast<std::size_t>(targetSize) * static_cast<std::size_t>(targetSize) * channels;
+}
+
+// A refusal of the driver: every status of a failed improcess call except a lack of memory. An
+// RGA2 call that the driver rejects (RgaBlit: Invalid argument) comes back as IM_STATUS_FAILED.
+bool isRefusal(IM_STATUS status) noexcept {
+    return status != IM_STATUS_OUT_OF_MEMORY;
+}
 
 // BT.601 full range NV12 to RGB, 16-bit fixed point: the coefficients 1.402, 0.344136, 0.714136 and
 // 1.772 times 65536. The colour of a 2 x 2 block is repeated for its four pixels, as the NV12
@@ -104,6 +113,18 @@ RgaCore coreOf(MethodKind kind) noexcept {
 }
 } // namespace
 
+std::string_view statusName(MethodStatus status) noexcept {
+    switch (status) {
+    case MethodStatus::Ok:
+        return "ok";
+    case MethodStatus::Rejected:
+        return "rejected";
+    case MethodStatus::Failed:
+        break;
+    }
+    return "failed";
+}
+
 std::string_view methodLabel(MethodKind kind) noexcept {
     switch (kind) {
     case MethodKind::Cv1:
@@ -156,14 +177,15 @@ std::optional<SourceFrame> makeSourceFrame(Pattern pattern, ImageSize size, std:
 }
 
 std::optional<PreprocessMethod> PreprocessMethod::create(MethodKind kind, SourceFrame& source,
-                                                         const Logger& log) {
+                                                         int targetSize, const Logger& log) {
     // The rotation by 180 degrees keeps the size, so the layout is that of the source.
-    const std::optional<LetterboxLayout> layout{letterboxLayout(source.size, defaultModelSize)};
+    const std::optional<LetterboxLayout> layout{letterboxLayout(source.size, targetSize)};
     if (!layout) {
         log.error("no letterbox layout for ", source.size.width, "x", source.size.height);
         return std::nullopt;
     }
-    std::optional<DmaBuf> buffer{DmaBuf::allocate(DmaBufConfig{lowHeap, targetBytes}, log)};
+    std::optional<DmaBuf> buffer{
+        DmaBuf::allocate(DmaBufConfig{lowHeap, targetBytes(targetSize)}, log)};
     if (!buffer) {
         return std::nullopt;
     }
@@ -174,7 +196,7 @@ std::optional<PreprocessMethod> PreprocessMethod::create(MethodKind kind, Source
     PreprocessMethod built{kind, source, std::move(*buffer), std::move(*image)};
     // cv::Mat is built with parentheses everywhere: with braces, three ints (rows, columns, type)
     // select the initializer_list constructor and make a 3 x 1 matrix of ints.
-    built.targetView = cv::Mat(defaultModelSize, defaultModelSize, CV_8UC3, built.target.data());
+    built.targetView = cv::Mat(targetSize, targetSize, CV_8UC3, built.target.data());
     if (isCpu(kind)) {
         const ImageSize scaled{layout->scaled};
         built.threads = threadsOf(kind);
@@ -190,8 +212,8 @@ std::optional<PreprocessMethod> PreprocessMethod::create(MethodKind kind, Source
         return std::optional<PreprocessMethod>{std::move(built)};
     }
     // The camera reports full range, so the application passes fullRange = true.
-    const LetterboxConfig config{source.size, source.size.width, defaultModelSize,
-                                 Rotation::Rotate180, true};
+    const LetterboxConfig config{source.size, source.size.width, targetSize, Rotation::Rotate180,
+                                 true};
     if (kind == MethodKind::RgaAuto) {
         built.kernelChoice = RgaLetterbox::create(config, log);
         if (!built.kernelChoice) {
@@ -255,6 +277,19 @@ bool PreprocessMethod::runCpu() {
     cv::rotate(smallRgb, placed, cv::ROTATE_180);
     // A device reads the target next: push the CPU writes out.
     return target.endCpuAccess();
+}
+
+Failure PreprocessMethod::failure() const {
+    if (forcedCore) {
+        const IM_STATUS status{forcedCore->lastStatus()};
+        return Failure{isRefusal(status) ? MethodStatus::Rejected : MethodStatus::Failed,
+                       forcedCore->lastMessage()};
+    }
+    if (kernelChoice) {
+        return Failure{MethodStatus::Failed,
+                       "RgaLetterbox::run returned false, the library logged the reason"};
+    }
+    return Failure{MethodStatus::Failed, "CPU path: padding or cache sync failed"};
 }
 
 bool PreprocessMethod::copyOutput(cv::Mat& out) const {
