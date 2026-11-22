@@ -30,11 +30,12 @@ Options and the config file: `resource/config/README.md`.
 | `library/` | Libraries in 5 groups: `library/README.md` |
 | `test/` | One test per `.cpp`, in the same folders as `library/` |
 | `probes/` | Hardware probes, [below](#probes) |
+| `bench/` | Benches of an accelerator against the CPU: `common/` (shared), `stage/` (one per stage), [below](#benches) |
 | `resource/` | `config/` (options, `app_config.json`), `rknn/` (the model, not in git) |
 | `cmake/` | `build_config.cmake`, toolchain, SDK finder |
 | `sh/` | Board scripts: `env/` setup and tests, `stream/` live view, `record/` MP4 capture |
 | `tools/` | PC scripts, [below](#tools) |
-| `python/`, `bench/`, `measurements/` | Empty for now |
+| `python/`, `measurements/` | Empty for now |
 
 ## What to build
 
@@ -45,11 +46,12 @@ Set `ON` or `OFF` in `cmake/build_config.cmake`, then `make`.
 | `BUILD_APP` | The app |
 | `BUILD_TEST_<NAME>` | `test_<name>` |
 | `BUILD_PROBE_<NAME>` | `probe_<name>` |
+| `BUILD_BENCH_<NAME>` | `bench_<name>` |
 
 - The file wins over any `-D`. A missing line stops the configure and names it.
 - `OFF` stops building it. An old binary stays in `build-arm/` until `make distclean`.
 - Native build (`make TOOLCHAIN= BUILD_DIR=build`) skips the probes and the tests that need the board.
-- `cmake --install build-arm --prefix <dir>` writes the tree that goes to the board: `bin/rk3588_deploy`, `bin/test/<group>/<library>/test_*`, `bin/probes/<group>/probe_*`. What is built is installed, so a new test or probe needs no list.
+- `cmake --install build-arm --prefix <dir>` writes the tree that goes to the board: `bin/rk3588_deploy`, `bin/test/<group>/<library>/test_*`, `bin/probes/<group>/probe_*`, `bin/bench/<group>/bench_*`. What is built is installed, so a new test or probe needs no list.
 
 ## Run
 
@@ -144,6 +146,14 @@ Usage is in each file header. Exit 0 and a last line `PASS` mean success.
 | `pipeline/probe_threads` | Thread layouts on real devices |
 | `pipeline/probe_output` | Output branch with made-up violations, then `check_output.py` |
 | `pipeline/probe_disk_write` | Write, fsync, rename latency under recording |
+
+## Benches
+
+Cross-compile only. Run on the board with the frequencies locked (`sh/env/lock_freq.sh`). Usage is in each file header. OpenCV 4.5.4 comes from the board sysroot.
+
+| Bench | Measures |
+|---|---|
+| `bench_preprocess` | Stage 1 (rotate, scale, NV12 to RGB, place into 640x640): `cv::resize` on 1 and 8 threads (`cv1`, `cv8`: the order of `model_io.preprocess`), RGA2, RGA3_0, RGA3_1 and the kernel's choice. Latency p50, p95, p99, CPU time per frame, pixel difference to `cv1` |
 
 ## Tools
 

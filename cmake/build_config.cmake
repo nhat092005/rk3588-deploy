@@ -7,6 +7,9 @@
 # ---- app ----
 set(BUILD_APP ON) # rk3588_deploy
 
+# ---- bench ----
+set(BUILD_BENCH_PREPROCESS ON) # stage 1 preprocess: RGA against OpenCV
+
 # ---- test/base ----
 set(BUILD_TEST_CONFIG_JSON ON)
 set(BUILD_TEST_FILE_TEXT ON)
