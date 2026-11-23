@@ -13,7 +13,7 @@ Each input is optional: a figure is drawn when its JSON is given.
 * ``--diff``: any number of runs, one table row each, for the pixel
   difference per test pattern.
 
-Figure 5 (speed against mAP) needs the mAP flow and is not drawn here.
+Figure 5 (change of mAP per method) is drawn by ``plot_map.py``.
 
 The figures follow the look of a paper: one column wide (3.5 in), serif
 text, a full frame with inward ticks, the legend inside the axes, no
