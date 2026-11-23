@@ -22,7 +22,7 @@
 #include "rknn_api.h"
 
 namespace {
-constexpr std::size_t imageSide{640};
+constexpr std::size_t imageSide{960};
 constexpr std::size_t imageChannels{3};
 constexpr int warmupRuns{10};
 constexpr int rssProbeRun{20};

@@ -31,7 +31,7 @@ struct Detection {
 struct PostprocessConfig {
     /** Number of classes: the output has 4 + classCount channels. */
     std::size_t classCount{0};
-    /** Number of anchors of the output (8400 for a 640 input), at most 30000. */
+    /** Number of anchors of the output (8400 for a 640 input, 18900 for a 960 input), at most 30000. */
     std::size_t anchorCount{0};
     /** Side of the model input in pixels, the factor of normalised boxes. Above 0, no default. */
     int modelSize{0};

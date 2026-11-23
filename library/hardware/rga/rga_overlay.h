@@ -40,6 +40,8 @@ constexpr std::uint32_t noHelmetColor{0x2828FFU};
 constexpr std::uint32_t noVestColor{0x008CFFU};
 /** @brief Vest: teal (0, 190, 170). */
 constexpr std::uint32_t vestColor{0xAABE00U};
+/** @brief RegularHat: purple (160, 90, 220). */
+constexpr std::uint32_t regularHatColor{0xDC5AA0U};
 /** @brief Person: white. */
 constexpr std::uint32_t personColor{0xFFFFFFU};
 /** @brief A person with a confirmed violation: yellow (255, 230, 0). */
@@ -48,12 +50,13 @@ constexpr std::uint32_t violatorColor{0x00E6FFU};
 constexpr std::uint32_t unknownColor{0x808080U};
 
 /** @brief The styles of this project's model by class index: Helmet, NoHelmet, NoVest, Vest,
- *         Person. */
-constexpr std::array<BoxStyle, 5> defaultClassStyles{{
+ *         RegularHat, Person. */
+constexpr std::array<BoxStyle, 6> defaultClassStyles{{
     {helmetColor, defaultBoxThickness},
     {noHelmetColor, defaultBoxThickness},
     {noVestColor, defaultBoxThickness},
     {vestColor, defaultBoxThickness},
+    {regularHatColor, defaultBoxThickness},
     {personColor, defaultBoxThickness},
 }};
 

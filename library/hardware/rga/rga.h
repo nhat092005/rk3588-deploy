@@ -48,7 +48,7 @@ private:
 };
 
 /** @brief Side of the model input in pixels (rk3588_common.model_io.IMGSZ). */
-constexpr int defaultModelSize{640};
+constexpr int defaultModelSize{960};
 
 /** @brief What RgaLetterbox converts. */
 struct LetterboxConfig {

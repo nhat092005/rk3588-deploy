@@ -31,7 +31,7 @@ constexpr int columnStep{150};
 constexpr int rowStep{110};
 constexpr int columns{8};
 constexpr int unknownClass{9};
-constexpr int classCount{5};
+constexpr int classCount{6};
 constexpr int cornerMargin{5};
 constexpr int overCapacityBoxes{6};
 constexpr std::size_t smallCapacity{4};
@@ -67,17 +67,19 @@ constexpr Rgb helmetRgb{0, 200, 0};
 constexpr Rgb noHelmetRgb{255, 40, 40};
 constexpr Rgb noVestRgb{255, 140, 0};
 constexpr Rgb vestRgb{0, 190, 170};
+constexpr Rgb regularHatRgb{160, 90, 220};
 constexpr Rgb personRgb{255, 255, 255};
 constexpr Rgb violatorRgb{255, 230, 0};
 constexpr Rgb unknownRgb{128, 128, 128};
-constexpr std::array<Rgb, 8> palette{backgroundRgb, helmetRgb, noHelmetRgb, noVestRgb,
-                                     vestRgb,       personRgb, violatorRgb, unknownRgb};
+constexpr std::array<Rgb, 9> palette{backgroundRgb, helmetRgb, noHelmetRgb, noVestRgb, vestRgb,
+                                     regularHatRgb, personRgb, violatorRgb, unknownRgb};
 enum class Paint : std::uint8_t {
     Background,
     Helmet,
     NoHelmet,
     NoVest,
     Vest,
+    RegularHat,
     Person,
     Violator,
     Unknown
@@ -237,13 +239,14 @@ void checkStyles(Check& check, const Logger& log) {
     const std::vector<OverlayBox> boxes{
         {cell(Cell{0, 0}), 0, false}, {cell(Cell{1, 0}), 1, false},
         {cell(Cell{2, 0}), 2, false}, {cell(Cell{3, 0}), 3, false},
-        {cell(Cell{4, 0}), 4, false}, {cell(Cell{5, 0}), unknownClass, false},
-        {cell(Cell{6, 0}), 4, true},
+        {cell(Cell{4, 0}), 4, false}, {cell(Cell{5, 0}), 5, false},
+        {cell(Cell{6, 0}), unknownClass, false}, {cell(Cell{7, 0}), 5, true},
     };
     check.expect(scene.overlay.draw(scene.handle, boxes), "draw succeeds");
     check.expect(scene.image.beginCpuAccess(), "CPU access");
-    const std::array<Paint, 7> expected{Paint::Helmet, Paint::NoHelmet, Paint::NoVest,  Paint::Vest,
-                                        Paint::Person, Paint::Unknown,  Paint::Violator};
+    const std::array<Paint, 8> expected{Paint::Helmet,     Paint::NoHelmet, Paint::NoVest,
+                                        Paint::Vest,       Paint::RegularHat, Paint::Person,
+                                        Paint::Unknown,    Paint::Violator};
     for (std::size_t index{0}; index < expected.size(); ++index) {
         check.expect(leftEdge(scene.image, boxes.at(index).box) == expected.at(index),
                      "the left line has the colour of its style");
@@ -265,7 +268,7 @@ void checkViolatorOnTop(Check& check, const Logger& log) {
     }
     Scene& scene{*made};
     // The violator is listed first and the person last, yet the violator is on top.
-    const std::vector<OverlayBox> boxes{{cell(Cell{0, 0}), 4, true}, {cell(Cell{0, 0}), 4, false}};
+    const std::vector<OverlayBox> boxes{{cell(Cell{0, 0}), 5, true}, {cell(Cell{0, 0}), 5, false}};
     check.expect(scene.overlay.draw(scene.handle, boxes), "draw succeeds");
     check.expect(scene.image.beginCpuAccess(), "CPU access");
     check.expect(leftEdge(scene.image, boxes.at(0).box) == Paint::Violator,
@@ -279,7 +282,7 @@ void checkJobs(Check& check, const Logger& log) {
         return;
     }
     Scene& scene{*made};
-    // 30 boxes of five classes in turn: three jobs, each with several styles.
+    // 30 boxes of six classes in turn: three jobs, each with several styles.
     std::vector<OverlayBox> boxes;
     for (int index{0}; index < manyBoxes; ++index) {
         boxes.push_back(
@@ -288,7 +291,7 @@ void checkJobs(Check& check, const Logger& log) {
     check.expect(scene.overlay.draw(scene.handle, boxes), "draw of 30 boxes succeeds");
     check.expect(scene.image.beginCpuAccess(), "CPU access");
     constexpr std::array<Paint, classCount> byClass{Paint::Helmet, Paint::NoHelmet, Paint::NoVest,
-                                                    Paint::Vest, Paint::Person};
+                                                    Paint::Vest, Paint::RegularHat, Paint::Person};
     bool allRight{true};
     for (std::size_t index{0}; index < boxes.size(); ++index) {
         allRight = allRight && topEdge(scene.image, boxes.at(index).box) ==

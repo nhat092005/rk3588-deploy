@@ -32,10 +32,10 @@
 namespace {
 using Clock = std::chrono::steady_clock;
 
-// What the model is: five classes, 8400 anchors for a 640 input, boxes divided by the input size
+// What the model is: six classes, 18900 anchors for a 960 input, boxes divided by the input size
 // (the INT8 Ultralytics export). A model that differs is refused by the first postprocess.
-constexpr std::size_t modelClassCount{5};
-constexpr std::size_t modelAnchorCount{8400};
+constexpr std::size_t modelClassCount{6};
+constexpr std::size_t modelAnchorCount{18900};
 constexpr int rgbChannels{3};
 // The postprocess keeps low confidence boxes for the tracker. The violation rule filters its own.
 constexpr float detectionConfidence{0.1F};
@@ -281,7 +281,7 @@ std::optional<Parts> makeParts(const AppOptions& options, const Logger& log) {
     constexpr auto inputSide{static_cast<std::size_t>(defaultModelSize)};
     if (npu->inputBytes() != inputSide * inputSide * rgbChannels) {
         log.error("the model input has ", npu->inputBytes(), " bytes, expected ",
-                  inputSide * inputSide * rgbChannels, " (640 x 640 RGB)");
+                  inputSide * inputSide * rgbChannels, " (960 x 960 RGB)");
         return std::nullopt;
     }
     std::optional<Capture> capture{makeCapture(options, *npu, log)};

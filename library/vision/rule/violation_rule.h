@@ -10,8 +10,8 @@
 #include "postprocess.h"
 
 /** @brief Class index of Person in the model of this project (Helmet, NoHelmet, NoVest, Vest,
- *         Person). */
-constexpr int defaultPersonClass{4};
+ *         RegularHat, Person). */
+constexpr int defaultPersonClass{5};
 /** @brief Class index of NoHelmet. */
 constexpr int defaultNoHelmetClass{1};
 /** @brief Class index of NoVest. */
