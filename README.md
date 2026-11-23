@@ -168,6 +168,11 @@ Cross-compile only. Run on the board with the frequencies locked (`sh/env/lock_f
 | `check/check_recordings.py` | Decode every segment, count frames |
 | `plot/plot_bench_preprocess.py` | Figures and tables of `bench_preprocess` from its JSON (needs matplotlib: `make sync` in the meta-repo, run with its `.venv`) |
 | `generate/make_coco_nv12.py` | Pictures (COCO val2017) to NV12 frames for `bench_preprocess --input`: padded at the right and bottom (edge pixels) to a width multiple of 16 and an even height, rotated 180 degrees, BT.601 full range; writes `<image id>.nv12` and `sizes.json` (original and padded size). Needs OpenCV and numpy (the repo `.venv`) |
+| `accuracy/run_map_board.py` | Board: for each NV12 frame of `generate/make_coco_nv12.py`, runs `bench_preprocess --input --dump` (six methods), builds the reference input (`model_io.preprocess` on the decoded frame), runs the four detectors (`yolov8n`, `yolov5s`, `yolov5s_relu`, `yolox_s`, INT8 `.rknn`) on the seven inputs on the NPU and writes COCO boxes (`shard<K>.jsonl.gz`). `--shard K/N --core 0\|1\|2` to use the three NPU cores, resumable, byte-identical inputs run once. Needs the board venv (rknnlite) |
+| `accuracy/run_map_onnx.py` | PC: the same on the reference input with the FP32 ONNX models (`onnxruntime`), the anchor for the INT8 drop |
+| `accuracy/eval_map.py` | PC: COCO mAP@0.5:0.95 and mAP@0.5 (`pycocotools`) of every model and input, over all frames and over the pictures scaled up and not; `map.json` and `map.md` with the change to the reference |
+| `accuracy/detect_postprocess.py` | Numpy post-processing of the three detector families (port of the `rknn_model_zoo` v2.3.2 one, confidence 0.001, NMS 0.65); tests in `accuracy/test_detect_postprocess.py` (`pytest`) |
+| `plot/plot_map.py` | Figure 5 (change of detection mAP per method, all pictures and the scaled-up ones) and its table from `map.json` of `accuracy/eval_map.py` |
 | `generate/make_label_font.py` | Write `label_font.h` |
 | `generate/make_postprocess_fixture.py` | Post-processing test data |
 | `generate/make_tracker_fixture.py` | Tracker test data (needs `lap`: `make sync`) |
