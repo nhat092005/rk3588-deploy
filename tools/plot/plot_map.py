@@ -1,4 +1,4 @@
-"""Draw figure 5: change of detection mAP per preprocess method.
+"""Draw figures 5 and 6: change of detection mAP per preprocess method.
 
 Input: ``map.json`` of ``tools/accuracy/eval_map.py``. For each of the
 six methods the figure shows how much the mAP@0.5:0.95 of a detector
@@ -16,7 +16,12 @@ Writes ``fig5_map_change.png`` (300 dpi), ``fig5_tables.md`` (the
 numbers) and ``fig5_caption.md`` to ``--out``. Same look as
 ``plot_bench_preprocess.py``, which it imports.
 
-Usage: plot_map.py --map map.json --out DIR
+With ``--canvas WxH`` (the run of ``run_map_board.py --canvas``, every
+picture enlarged into a WxH frame) only panel (a) is drawn, and
+``--name fig6_map_change`` gives figure 6 its file names.
+
+Usage: plot_map.py --map map.json --out DIR [--name NAME]
+       [--canvas WxH]
 """
 
 import argparse
@@ -37,6 +42,7 @@ FP32_SUFFIX = "_fp32"
 METRIC = "map5095"
 PERCENT = 100.0
 PAIR_SIZE = (7.0, 2.9)
+SINGLE_SIZE = (3.6, 2.9)
 ZERO_LINE = "#555555"
 GROUP_WIDTH = 0.8
 # One colour per model, the same hues as figures 1-4.
@@ -48,9 +54,12 @@ MODEL_STYLES = {
 }
 
 
-def panels(doc: dict) -> list[tuple[str, str, str]]:
+def panels(doc: dict, canvas: str | None) -> list[tuple[str, str, str]]:
     """Return (group, caption under the panel, table title) of each."""
     frames = doc["frames"]
+    if canvas:
+        text = f"{frames['all']} pictures in a {canvas} frame"
+        return [("all", f"(a) {text}", text)]
     return [
         (
             "all",
@@ -82,7 +91,11 @@ def deltas(scores: dict, group: str) -> dict[str, dict[str, float]]:
 
 
 def bars(
-    ax: Axes, change: dict[str, dict[str, float]], *, legend: bool
+    ax: Axes,
+    change: dict[str, dict[str, float]],
+    *,
+    legend: bool,
+    corner: str = "lower left",
 ) -> None:
     """Draw, at each method, one bar per model."""
     models = [
@@ -111,7 +124,7 @@ def bars(
     ax.set_axisbelow(True)
     if legend:
         ax.legend(
-            loc="lower left",
+            loc=corner,
             ncol=2,
             frameon=False,
             handlelength=1.4,
@@ -150,20 +163,34 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--map", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--name", default="fig5_map_change")
+    parser.add_argument("--canvas", help="WxH: single panel, figure 6")
     return parser.parse_args()
 
 
 def main() -> int:
-    """Draw figure 5 and write its table and caption."""
+    """Draw the figure and write its table and caption."""
     args = parse_args()
     doc = json.loads(args.map.read_text())
     args.out.mkdir(parents=True, exist_ok=True)
     paper_style()
-    fig, axes = plt.subplots(1, 2, figsize=PAIR_SIZE, sharey=True)
+    shown = panels(doc, args.canvas)
+    fig, axes = plt.subplots(
+        1,
+        len(shown),
+        figsize=PAIR_SIZE if len(shown) > 1 else SINGLE_SIZE,
+        sharey=True,
+        squeeze=False,
+    )
     sections = []
-    for ax, (group, caption, title) in zip(axes, panels(doc), strict=True):
+    for ax, (group, caption, title) in zip(axes[0], shown, strict=True):
         change = deltas(doc["scores"], group)
-        bars(ax, change, legend=group == "all")
+        bars(
+            ax,
+            change,
+            legend=group == "all",
+            corner="best" if args.canvas else "lower left",
+        )
         ax.annotate(
             caption,
             xy=(0.5, 0.0),
@@ -178,20 +205,27 @@ def main() -> int:
             + table(doc["scores"], group, change)
         )
     fig.tight_layout(pad=0.4, w_pad=1.2)
-    fig.savefig(args.out / "fig5_map_change.png", dpi=300)
+    prefix = args.name.partition("_")[0]
+    fig.savefig(args.out / f"{args.name}.png", dpi=300)
     plt.close(fig)
-    (args.out / "fig5_tables.md").write_text("\n".join(sections))
-    (args.out / "fig5_caption.md").write_text(
-        "**fig5_map_change**: Change of the detection mAP@0.5:0.95 when"
+    (args.out / f"{prefix}_tables.md").write_text("\n".join(sections))
+    (args.out / f"{prefix}_caption.md").write_text(
+        f"**{args.name}**: Change of the detection mAP@0.5:0.95 when"
         " each preprocess method makes the model input instead of the"
         " reference (CPU, `model_io.preprocess`): the mAP with the method"
         " minus the mAP with the reference, both scored against the COCO"
-        " val2017 labels, in mAP points. One bar per model."
-        " (a) all pictures of the run (most have a long"
-        " side of 640 px and are not scaled); (b) only the pictures that"
-        " the preprocess scales up (long side under 640 px, about 1.28"
-        " times). Zero means no change; a method below zero lowers the"
-        " mAP.\n"
+        " val2017 labels, in mAP points. One bar per model. "
+        + (
+            f"Each picture is enlarged to fill a {args.canvas} frame"
+            " and the preprocess scales the frame down about 6 times"
+            " (the case of the camera). "
+            if args.canvas
+            else "(a) all pictures of the run (most have a long"
+            " side of 640 px and are not scaled); (b) only the pictures"
+            " that the preprocess scales up (long side under 640 px,"
+            " about 1.28 times). "
+        )
+        + "Zero means no change; a method below zero lowers the mAP.\n"
     )
     return 0
 

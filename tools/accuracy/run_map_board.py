@@ -14,11 +14,19 @@ Output, in ``--out``: ``shard<K>.jsonl.gz`` with one line per frame,
 the finished ids, so a stopped run goes on where it was. ``missing``
 lists the methods that the RGA refused for that frame (no output).
 
-Needs the board venv (numpy, OpenCV, rknnlite) with ``rk3588_common``
-and ``tools/check`` reachable (this file adds ``../check`` itself).
+With ``--canvas WxH`` FRAMES is a folder of pictures instead: each one
+is enlarged into a WxH canvas (``place_on_canvas``), written as NV12 in
+``--work``, run, and the frame is replaced by the next one, so a 4K run
+needs no room for all the frames. The boxes are mapped back to the
+picture. ``--ids FILE`` (one image id per line) picks the pictures.
+
+Needs the board venv (numpy, OpenCV, rknnlite) with ``rk3588_common``,
+``tools/check`` and ``tools/generate`` reachable (this file adds
+``../check`` and ``../generate`` itself).
 
 Usage: run_map_board.py FRAMES MODELS OUT --bench PATH [--limit N]
        [--shard K/N] [--core auto|0|1|2] [--work DIR]
+       [--canvas WxH] [--ids FILE]
 Exit code 0 when every frame was done, 1 on a failed frame, 2 on a bad
 command line.
 """
@@ -27,6 +35,7 @@ import argparse
 import gzip
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import time
@@ -34,10 +43,12 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from detect_postprocess import IMGSZ, detect, to_coco
+from detect_postprocess import IMGSZ, compose_meta, detect, to_coco
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "check"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "generate"))
 from check_bench_preprocess import nv12_full_to_bgr
+from make_coco_nv12 import place_on_canvas, to_nv12
 
 from rk3588_common.model_io import preprocess
 
@@ -58,7 +69,9 @@ EXIT_USAGE = 2
 def parse_args(argv: list[str]) -> argparse.Namespace:
     """Parse and check the command line. Exit code 2 on bad input."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("frames", type=Path, help="NV12 frames and sizes")
+    parser.add_argument(
+        "frames", type=Path, help="NV12 frames and sizes, or pictures"
+    )
     parser.add_argument("models", type=Path, help="folder of the .rknn")
     parser.add_argument("out", type=Path, help="folder of the results")
     parser.add_argument("--bench", type=Path, required=True)
@@ -68,7 +81,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--work", type=Path, default=Path("/tmp/map_work"), help="scratch"
     )
+    parser.add_argument("--canvas", help="WxH: enlarge pictures into it")
+    parser.add_argument("--ids", type=Path, help="file of image ids to run")
     args = parser.parse_args(argv)
+    args.canvas_size = None
+    if args.canvas:
+        try:
+            args.canvas_size = tuple(int(x) for x in args.canvas.split("x"))
+        except ValueError:
+            parser.error("--canvas is WxH")
+        if len(args.canvas_size) != 2:
+            parser.error("--canvas is WxH")
     try:
         args.index, args.count = (int(x) for x in args.shard.split("/"))
     except ValueError:
@@ -134,20 +157,51 @@ def run_bench(
     ]
     for stale in dump.glob("*.rgb"):
         stale.unlink()
-    subprocess.run(command, capture_output=True, check=False)
-    return [label for label in LABELS if (dump / f"{label}.rgb").is_file()]
+    done = subprocess.run(command, capture_output=True, check=False)
+    present = [label for label in LABELS if (dump / f"{label}.rgb").is_file()]
+    if len(present) < len(LABELS):
+        text = (done.stdout + done.stderr).decode(errors="replace")
+        for line in text.splitlines():
+            if "BENCH:" in line and re.search(r"\b[EW] \(", line):
+                print(f"{frame.name}: {line.split('BENCH: ', 1)[1]}")
+    return present
+
+
+def canvas_frame(
+    picture_path: Path, canvas: tuple[int, int], dest: Path
+) -> tuple[tuple[int, int], tuple[float, int, int]]:
+    """Write the NV12 frame of a picture on a canvas.
+
+    Returns the picture size (width, height) and its placement.
+    """
+    picture = cv2.imread(str(picture_path), cv2.IMREAD_COLOR)
+    if picture is None:
+        raise OSError(f"{picture_path}: cannot read the picture")
+    frame, placement = place_on_canvas(picture, canvas)
+    to_nv12(cv2.rotate(frame, cv2.ROTATE_180)).tofile(dest)
+    return (picture.shape[1], picture.shape[0]), placement
 
 
 def process_frame(
     image_id: str, sizes: dict, args: argparse.Namespace, models: dict
 ) -> dict:
     """Return the line of one frame."""
-    width, height, wide, tall = sizes[image_id]
     dump = args.work / f"shard{args.index}"
     dump.mkdir(parents=True, exist_ok=True)
-    frame = args.frames / f"{image_id}.nv12"
+    placement = None
+    if args.canvas_size:
+        frame = dump / "canvas.nv12"
+        (width, height), placement = canvas_frame(
+            args.frames / f"{int(image_id):012d}.jpg", args.canvas_size, frame
+        )
+        wide, tall = args.canvas_size
+    else:
+        width, height, wide, tall = sizes[image_id]
+        frame = args.frames / f"{image_id}.nv12"
     present = run_bench(args.bench, frame, (wide, tall), dump)
     reference, meta = reference_input(frame, (wide, tall))
+    if placement:
+        meta = compose_meta(meta, placement)
     inputs = {REFERENCE: reference}
     for label in present:
         inputs[label] = np.fromfile(dump / f"{label}.rgb", dtype=np.uint8)
@@ -186,8 +240,14 @@ def append_line(folder: Path, name: str, line: dict) -> None:
 def main(argv: list[str]) -> int:
     """Run the frames of the shard, return the exit code."""
     args = parse_args(argv)
-    sizes = json.loads((args.frames / "sizes.json").read_text())
-    ids = sorted(sizes, key=int)
+    if args.canvas_size:
+        sizes = {}
+        names = args.ids.read_text().split() if args.ids else []
+        names = names or [path.stem for path in args.frames.glob("*.jpg")]
+        ids = sorted({str(int(name)) for name in names}, key=int)
+    else:
+        sizes = json.loads((args.frames / "sizes.json").read_text())
+        ids = sorted(sizes, key=int)
     if args.limit:
         ids = ids[: args.limit]
     ids = ids[args.index :: args.count]
