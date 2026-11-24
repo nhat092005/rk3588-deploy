@@ -226,11 +226,25 @@ def detect(
     return boxes[order], best[order], scores[order]
 
 
+def compose_meta(
+    meta: tuple[float, float, float], placement: tuple[float, int, int]
+) -> tuple[float, float, float]:
+    """Join the letterbox of a frame and the placement of a picture.
+
+    ``meta`` maps the input to the frame, ``placement`` (scale, left,
+    top) maps the picture to the frame. The result maps the input to the
+    picture, for ``to_coco``.
+    """
+    gain, left, top = meta
+    scale, offset_x, offset_y = placement
+    return gain * scale, left + gain * offset_x, top + gain * offset_y
+
+
 def to_coco(
     boxes: np.ndarray,
     classes: np.ndarray,
     scores: np.ndarray,
-    meta: tuple[float, int, int],
+    meta: tuple[float, float, float],
     size: tuple[int, int],
 ) -> list[list[float]]:
     """Map detections of the input to rows of the original picture.

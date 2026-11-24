@@ -28,6 +28,7 @@ import cv2
 import numpy as np
 
 STRIDE_ALIGNMENT = 16  # width multiple of the RGA RGB888 buffers
+CANVAS_FILL = 114  # grey of the canvas around a picture
 SIZES = "sizes.json"
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
 
@@ -76,6 +77,33 @@ def convert(picture: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]:
         picture, 0, tall - height, 0, wide - width, cv2.BORDER_REPLICATE
     )
     return to_nv12(cv2.rotate(padded, cv2.ROTATE_180)), (wide, tall)
+
+
+def place_on_canvas(
+    picture: np.ndarray, canvas: tuple[int, int]
+) -> tuple[np.ndarray, tuple[float, int, int]]:
+    """Enlarge a picture to fill a canvas and return (frame, placement).
+
+    The picture keeps its aspect ratio, is enlarged as far as the canvas
+    allows (cubic) and is centred, with even offsets, on grey. The
+    placement is (scale, left, top): a canvas pixel (x, y) is the
+    picture pixel ((x - left) / scale, (y - top) / scale). The frame is
+    upright, rotated 180 degrees and sent through ``to_nv12`` by the
+    caller.
+    """
+    wide, tall = canvas
+    height, width = picture.shape[:2]
+    scale = min(wide / width, tall / height)
+    new_w = min(wide, round(width * scale))
+    new_h = min(tall, round(height * scale))
+    resized = cv2.resize(
+        picture, (new_w, new_h), interpolation=cv2.INTER_CUBIC
+    )
+    left = (wide - new_w) // 2 // 2 * 2
+    top = (tall - new_h) // 2 // 2 * 2
+    frame = np.full((tall, wide, 3), CANVAS_FILL, dtype=np.uint8)
+    frame[top : top + new_h, left : left + new_w] = resized
+    return frame, (scale, left, top)
 
 
 def main(argv: list[str]) -> int:
