@@ -46,8 +46,6 @@ LOG_SPAN = 10
 FPS_MAX_LABEL = "max"
 EXIT_USAGE = 2
 FIGURE_SIZE = (3.5, 2.6)
-PAIR_SIZE = (7.0, 2.9)
-QUAD_SIZE = (7.0, 5.7)
 
 BLACK = "#000000"
 GRID = "#d0d0d0"
@@ -300,42 +298,6 @@ def draw(
     plt.close(fig)
 
 
-@dataclass(frozen=True)
-class Panel:
-    """One plot of a multi-panel image: axis, y spec, data, caption."""
-
-    axis: Axis
-    spec: Spec
-    data: dict[str, list[Cell]]
-    text: str
-
-
-def draw_panels(
-    path: Path,
-    shape: tuple[int, int],
-    size: tuple[float, float],
-    panels: list[Panel],
-) -> None:
-    """Draw panels in a grid: legend in (a) only, labels (a), (b)..."""
-    fig, axes = plt.subplots(*shape, figsize=size, squeeze=False)
-    for i, (ax, panel) in enumerate(zip(axes.flat, panels, strict=True)):
-        plot_on(ax, panel.axis, panel.spec, panel.data, legend=i == 0)
-        # Just under the x label, so the caption belongs to its panel;
-        # h_pad keeps the rows apart.
-        ax.annotate(
-            f"({'abcdefgh'[i]}) {panel.text}",
-            xy=(0.5, 0.0),
-            xycoords="axes fraction",
-            xytext=(0, -34),
-            textcoords="offset points",
-            ha="center",
-            va="top",
-        )
-    fig.tight_layout(pad=0.4, w_pad=1.2, h_pad=2.4)
-    fig.savefig(path.with_suffix(".png"), dpi=300)
-    plt.close(fig)
-
-
 def md_table(header: list[str], rows: list[list[str]]) -> str:
     """Return a Markdown table."""
     lines = [
@@ -450,8 +412,6 @@ class Figure:
     spec: Spec
     title: str
     caption: str
-    # Short name under the panel when two figures share one image.
-    panel: str
 
 
 def draw_figures(
@@ -460,26 +420,18 @@ def draw_figures(
     axis: Axis,
     figures: tuple[Figure, ...],
     report: tuple[list[str], list[str]],
-) -> list[Panel]:
-    """Draw the figures of one JSON; return their panels."""
+) -> None:
+    """Draw the figures of one JSON."""
     sections, captions = report
-    panels = []
     statuses: set[str] = set()
     for figure in figures:
         data = {m: cells(doc, m, figure.spec.key) for m in METHODS}
-        panels.append(Panel(axis, figure.spec, data, figure.panel))
         draw(out / figure.stem, axis, figure.spec, data)
         sections.append(f"## {figure.title}\n\n{values_table(axis, data)}")
         statuses |= {c.status for s in data.values() for c in s}
         captions.append(
             f"**{figure.stem}**: {figure.caption} {note(statuses)}\n"
         )
-    return panels
-
-
-def statuses_of(panels: list[Panel]) -> set[str]:
-    """Return every status that appears in the data of the panels."""
-    return {c.status for p in panels for s in p.data.values() for c in s}
 
 
 def note(statuses: set[str]) -> str:
@@ -492,7 +444,6 @@ def sweep_figures(
     names: tuple[str, str],
     stems: tuple[str, str],
     where: str,
-    short: str,
 ) -> tuple[Figure, ...]:
     """Return the latency and the CPU figure of one sweep."""
     background = f"{doc['runs']} runs per point, NPU idle, log scale"
@@ -502,7 +453,6 @@ def sweep_figures(
             Spec("p50_ms", "Latency p50 (ms)", log=True),
             names[0],
             f"Latency p50 of the preprocess stage by {where} ({background}).",
-            f"Latency p50 by {short}",
         ),
         Figure(
             stems[1],
@@ -510,7 +460,6 @@ def sweep_figures(
             names[1],
             f"CPU time per frame of the preprocess stage by {where}"
             f" ({background}).",
-            f"CPU time per frame by {short}",
         ),
     )
 
@@ -529,14 +478,12 @@ def fps_figures(doc: dict) -> tuple[Figure, ...]:
             Spec("p95_ms", "Latency p95 (ms)"),
             f"Latency p95 by frame rate ({state})",
             f"Latency p95 of the preprocess stage by {where}.",
-            "Latency p95",
         ),
         Figure(
             "fig3_system_cpu_fps",
             Spec("system_cpu_percent", "System CPU, 8 cores (%)"),
             f"System CPU by frame rate ({state})",
             f"Share of all 8 cores that was busy, by {where}.",
-            "System CPU",
         ),
     )
 
@@ -566,7 +513,6 @@ def main() -> int:
     captions: list[str] = []
     report = (sections, captions)
     sweeps: list[tuple[str, dict]] = []
-    by_sweep: dict[str, list[Panel]] = {}
     if args.source:
         doc = load(args.source)
         sweeps.append(("source", doc))
@@ -578,12 +524,8 @@ def main() -> int:
             ),
             ("fig1_latency_source", "fig2_cpu_source"),
             "source frame size (16:9, output 640x640)",
-            "source size",
         )
-        by_sweep["source"] = draw_figures(
-            args.out, doc, source_axis(doc), figures, report
-        )
-        runs_per_point = doc["runs"]
+        draw_figures(args.out, doc, source_axis(doc), figures, report)
     if args.output:
         doc = load(args.output)
         sweeps.append(("output", doc))
@@ -595,39 +537,11 @@ def main() -> int:
             ),
             ("fig6_latency_output", "fig7_cpu_output"),
             "output size (source 3840x2160)",
-            "output size",
         )
-        by_sweep["output"] = draw_figures(
-            args.out, doc, output_axis(doc), figures, report
-        )
-        runs_per_point = doc["runs"]
-    if len(by_sweep) == 2:
-        panels = by_sweep["source"] + by_sweep["output"]
-        draw_panels(args.out / "quad_size", (2, 2), QUAD_SIZE, panels)
-        captions.append(
-            "**quad_size**: The preprocess stage by source frame size"
-            " (a, b; 16:9, output 640x640) and by output size (c, d; source"
-            f" 3840x2160). Left: latency p50; right: CPU time per frame;"
-            f" {runs_per_point} runs per point, NPU idle, log scale where"
-            f" the axis says so. {note(statuses_of(panels))}\n",
-        )
-    else:
-        for stem, panels in zip(
-            ("pair_a_source", "pair_b_output"), by_sweep.values(), strict=False
-        ):
-            draw_panels(args.out / stem, (1, 2), PAIR_SIZE, panels)
+        draw_figures(args.out, doc, output_axis(doc), figures, report)
     if args.fps_npu:
         npu = load(args.fps_npu)
-        panels = draw_figures(
-            args.out, npu, fps_axis(npu), fps_figures(npu), report
-        )
-        draw_panels(args.out / "pair_c_fps", (1, 2), PAIR_SIZE, panels)
-        captions.append(
-            "**pair_c_fps**: (a) latency p95 and (b) share of all 8 cores"
-            f" that was busy, by frame rate asked for (3840x2160 into"
-            f" 640x640, {npu['seconds']} s per method, the NPU model running"
-            f" meanwhile). {note(statuses_of(panels))}\n",
-        )
+        draw_figures(args.out, npu, fps_axis(npu), fps_figures(npu), report)
         if args.fps_rest:
             rest = load(args.fps_rest)
             sections.append(
