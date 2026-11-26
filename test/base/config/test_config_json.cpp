@@ -150,6 +150,37 @@ void checkShapes(Check& check) {
     check.expect(exponent.ok && exponent.entries.size() == exponentPairs, "E, e- and E+ exponents");
 }
 
+void checkLists(Check& check) {
+    const JsonParse parse{parseConfigJson(
+        R"({"model": "m", "classes": [{"name": "A", "role": "person"}, {"name": "B"}], "run": {"frames": 3}})")};
+    check.expect(parse.ok, "a list of two objects");
+    constexpr std::size_t listEntries{9};
+    if (!parse.ok || parse.entries.size() != listEntries) {
+        check.expect(false,
+                     "nine entries: model, list, two elements with their pairs, run and its pair");
+        return;
+    }
+    check.expect(parse.entries[1].kind == JsonKind::Array && parse.entries[1].key == "classes" &&
+                     parse.entries[1].group.empty() && parse.entries[1].value.empty(),
+                 "a list starts with an Array entry");
+    check.expect(parse.entries[2].kind == JsonKind::Object && parse.entries[2].group == "classes" &&
+                     parse.entries[2].key == "0",
+                 "the first element is an Object entry named 0");
+    check.expect(parse.entries[3].group == "classes.0" && parse.entries[3].key == "name" &&
+                     parse.entries[3].value == "A" && parse.entries[3].kind == JsonKind::String,
+                 "a pair of the first element carries classes.0");
+    check.expect(parse.entries[4].group == "classes.0" && parse.entries[4].key == "role" &&
+                     parse.entries[4].value == "person",
+                 "the second pair of the first element");
+    check.expect(parse.entries[5].kind == JsonKind::Object && parse.entries[5].key == "1" &&
+                     parse.entries[6].group == "classes.1" && parse.entries[6].value == "B",
+                 "the second element follows in order");
+    check.expect(parse.entries[7].kind == JsonKind::Object && parse.entries[7].key == "run",
+                 "a group after the list is read as usual");
+    const JsonParse blank{parseConfigJson(R"({"c": [ { } , {"n":"x"} ] })")};
+    check.expect(blank.ok && blank.entries.size() == 4, "an empty element and spaces in a list");
+}
+
 struct Bad {
     std::string_view text;
     std::size_t offset;
@@ -157,7 +188,7 @@ struct Bad {
 };
 
 void checkRefusals(Check& check) {
-    constexpr std::array<Bad, 33> cases{{
+    constexpr std::array<Bad, 44> cases{{
         {"", 0, "empty text"},
         {"   ", 3, "only spaces"},
         {"[]", 0, "an array"},
@@ -190,6 +221,17 @@ void checkRefusals(Check& check) {
         {"{\"a\": tru}", 6, "a truncated true"},
         {"{\"a\": True}", 6, "True with a capital"},
         {"{\"a\": 1} x", 9, "text after the object"},
+        {"{\"a\": []}", 6, "an empty array"},
+        {"{\"a\": [ ]}", 6, "an empty array with a space"},
+        {"{\"a\": [\"x\"]}", 6, "an array of strings"},
+        {"{\"a\": [[{\"b\": \"c\"}]]}", 6, "an array of arrays"},
+        {"{\"a\": [{\"b\": \"c\"},]}", 18, "a comma before the end of an array"},
+        {"{\"a\": [{\"b\": \"c\"}", 17, "an array that is not closed"},
+        {"{\"a\": [{\"b\": 1}]}", 13, "a number in an element"},
+        {"{\"a\": [{\"b\": true}]}", 13, "a boolean in an element"},
+        {"{\"a\": [{\"b\": {\"c\": \"d\"}}]}", 13, "a group in an element"},
+        {"{\"g\": {\"a\": [{\"b\": \"c\"}]}}", 12, "an array inside a group"},
+        {"{\"a\": [{\"b\": \"c\",}]}", 17, "a comma before the end of an element"},
     }};
     for (const Bad& bad : cases) {
         const JsonParse parse{parseConfigJson(bad.text)};
@@ -209,6 +251,7 @@ int main() {
     checkValues(check);
     checkGroups(check);
     checkNestedGroups(check);
+    checkLists(check);
     checkShapes(check);
     checkRefusals(check);
     if (!check.ok()) {

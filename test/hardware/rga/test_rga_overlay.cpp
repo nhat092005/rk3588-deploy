@@ -31,7 +31,7 @@ constexpr int columnStep{150};
 constexpr int rowStep{110};
 constexpr int columns{8};
 constexpr int unknownClass{9};
-constexpr int classCount{5};
+constexpr int classCount{6};
 constexpr int cornerMargin{5};
 constexpr int overCapacityBoxes{6};
 constexpr std::size_t smallCapacity{4};
@@ -67,17 +67,19 @@ constexpr Rgb helmetRgb{0, 200, 0};
 constexpr Rgb noHelmetRgb{255, 40, 40};
 constexpr Rgb noVestRgb{255, 140, 0};
 constexpr Rgb vestRgb{0, 190, 170};
+constexpr Rgb regularHatRgb{160, 90, 220};
 constexpr Rgb personRgb{255, 255, 255};
 constexpr Rgb violatorRgb{255, 230, 0};
 constexpr Rgb unknownRgb{128, 128, 128};
-constexpr std::array<Rgb, 8> palette{backgroundRgb, helmetRgb, noHelmetRgb, noVestRgb,
-                                     vestRgb,       personRgb, violatorRgb, unknownRgb};
+constexpr std::array<Rgb, 9> palette{backgroundRgb, helmetRgb, noHelmetRgb, noVestRgb, vestRgb,
+                                     regularHatRgb, personRgb, violatorRgb, unknownRgb};
 enum class Paint : std::uint8_t {
     Background,
     Helmet,
     NoHelmet,
     NoVest,
     Vest,
+    RegularHat,
     Person,
     Violator,
     Unknown
@@ -235,15 +237,20 @@ void checkStyles(Check& check, const Logger& log) {
     check.expect(scene.overlay.check(scene.handle), "the RGA2 accepts a lowHeap buffer");
     check.expect(paintBackground(scene.image), "background repainted");
     const std::vector<OverlayBox> boxes{
-        {cell(Cell{0, 0}), 0, false}, {cell(Cell{1, 0}), 1, false},
-        {cell(Cell{2, 0}), 2, false}, {cell(Cell{3, 0}), 3, false},
-        {cell(Cell{4, 0}), 4, false}, {cell(Cell{5, 0}), unknownClass, false},
-        {cell(Cell{6, 0}), 4, true},
+        {cell(Cell{0, 0}), 0, false},
+        {cell(Cell{1, 0}), 1, false},
+        {cell(Cell{2, 0}), 2, false},
+        {cell(Cell{3, 0}), 3, false},
+        {cell(Cell{4, 0}), 4, false},
+        {cell(Cell{5, 0}), 5, false},
+        {cell(Cell{6, 0}), unknownClass, false},
+        {cell(Cell{7, 0}), 5, true},
     };
     check.expect(scene.overlay.draw(scene.handle, boxes), "draw succeeds");
     check.expect(scene.image.beginCpuAccess(), "CPU access");
-    const std::array<Paint, 7> expected{Paint::Helmet, Paint::NoHelmet, Paint::NoVest,  Paint::Vest,
-                                        Paint::Person, Paint::Unknown,  Paint::Violator};
+    const std::array<Paint, 8> expected{Paint::Helmet,  Paint::NoHelmet,   Paint::NoVest,
+                                        Paint::Vest,    Paint::RegularHat, Paint::Person,
+                                        Paint::Unknown, Paint::Violator};
     for (std::size_t index{0}; index < expected.size(); ++index) {
         check.expect(leftEdge(scene.image, boxes.at(index).box) == expected.at(index),
                      "the left line has the colour of its style");
@@ -257,6 +264,30 @@ void checkStyles(Check& check, const Logger& log) {
                  "outside every box is not touched");
 }
 
+// The styles built from a class list: roles keep their colour, the others take the plain colours in
+// turn, and the colours do not depend on where the roles sit.
+void checkClassStyles(Check& check) {
+    const std::vector<BoxStyle> six{classStylesFor(6, 5, 1, 2)};
+    check.expect(six.size() == 6 && six[0].color == helmetColor && six[1].color == noHelmetColor &&
+                     six[2].color == noVestColor && six[3].color == vestColor &&
+                     six[4].color == regularHatColor && six[5].color == personColor,
+                 "the 6 classes of the project get the colours of defaultClassStyles");
+    for (std::size_t index{0}; index < six.size(); ++index) {
+        check.expect(six[index].color == defaultClassStyles.at(index).color &&
+                         six[index].thickness == defaultClassStyles.at(index).thickness,
+                     "classStylesFor of the default roles is defaultClassStyles");
+    }
+    const std::vector<BoxStyle> five{classStylesFor(5, 4, 1, 2)};
+    check.expect(five.size() == 5 && five[3].color == vestColor && five[4].color == personColor,
+                 "a 5-class list keeps Person white");
+    const std::vector<BoxStyle> many{classStylesFor(8, 0, 1, 2)};
+    check.expect(many[3].color == helmetColor && many[4].color == vestColor &&
+                     many[5].color == regularHatColor && many[6].color == unknownColor &&
+                     many[7].color == unknownColor,
+                 "plain classes beyond the palette are gray");
+    check.expect(classStylesFor(0, 0, 1, 2).empty(), "no class, no style");
+}
+
 void checkViolatorOnTop(Check& check, const Logger& log) {
     std::optional<Scene> made{makeScene(log)};
     if (!made) {
@@ -265,7 +296,7 @@ void checkViolatorOnTop(Check& check, const Logger& log) {
     }
     Scene& scene{*made};
     // The violator is listed first and the person last, yet the violator is on top.
-    const std::vector<OverlayBox> boxes{{cell(Cell{0, 0}), 4, true}, {cell(Cell{0, 0}), 4, false}};
+    const std::vector<OverlayBox> boxes{{cell(Cell{0, 0}), 5, true}, {cell(Cell{0, 0}), 5, false}};
     check.expect(scene.overlay.draw(scene.handle, boxes), "draw succeeds");
     check.expect(scene.image.beginCpuAccess(), "CPU access");
     check.expect(leftEdge(scene.image, boxes.at(0).box) == Paint::Violator,
@@ -279,7 +310,7 @@ void checkJobs(Check& check, const Logger& log) {
         return;
     }
     Scene& scene{*made};
-    // 30 boxes of five classes in turn: three jobs, each with several styles.
+    // 30 boxes of six classes in turn: three jobs, each with several styles.
     std::vector<OverlayBox> boxes;
     for (int index{0}; index < manyBoxes; ++index) {
         boxes.push_back(
@@ -287,8 +318,9 @@ void checkJobs(Check& check, const Logger& log) {
     }
     check.expect(scene.overlay.draw(scene.handle, boxes), "draw of 30 boxes succeeds");
     check.expect(scene.image.beginCpuAccess(), "CPU access");
-    constexpr std::array<Paint, classCount> byClass{Paint::Helmet, Paint::NoHelmet, Paint::NoVest,
-                                                    Paint::Vest, Paint::Person};
+    constexpr std::array<Paint, classCount> byClass{Paint::Helmet,     Paint::NoHelmet,
+                                                    Paint::NoVest,     Paint::Vest,
+                                                    Paint::RegularHat, Paint::Person};
     bool allRight{true};
     for (std::size_t index{0}; index < boxes.size(); ++index) {
         allRight = allRight && topEdge(scene.image, boxes.at(index).box) ==
@@ -343,6 +375,7 @@ int main() {
     Check check{log};
     checkConfig(check, log);
     checkStyles(check, log);
+    checkClassStyles(check);
     checkViolatorOnTop(check, log);
     checkJobs(check, log);
     checkEdges(check, log);

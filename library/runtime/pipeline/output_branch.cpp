@@ -137,12 +137,12 @@ std::optional<Lane> makeLane(const StreamPlan& plan, const AppOptions& options,
 } // namespace
 
 struct BranchState {
-    BranchState(float confidence, Logger logger, const RgaSnapshot& copier, FrameSlot target,
-                std::optional<RgaSnapshot> imageCopier, RgaOverlay outlines, RgaLabels texts,
-                std::vector<Lane> streams, std::unique_ptr<EvidenceHub> shared)
-        : minConfidence{confidence}, log{logger}, snapshot{copier}, slot{std::move(target)},
-          evidenceCopy{imageCopier}, overlay{std::move(outlines)}, labels{std::move(texts)},
-          lanes{std::move(streams)}, evidence{std::move(shared)} {
+    BranchState(float confidence, int person, Logger logger, const RgaSnapshot& copier,
+                FrameSlot target, std::optional<RgaSnapshot> imageCopier, RgaOverlay outlines,
+                RgaLabels texts, std::vector<Lane> streams, std::unique_ptr<EvidenceHub> shared)
+        : minConfidence{confidence}, personClass{person}, log{logger}, snapshot{copier},
+          slot{std::move(target)}, evidenceCopy{imageCopier}, overlay{std::move(outlines)},
+          labels{std::move(texts)}, lanes{std::move(streams)}, evidence{std::move(shared)} {
         boxes.reserve(boxCapacity);
     }
     BranchState(const BranchState&) = delete;
@@ -164,6 +164,8 @@ struct BranchState {
     ClipRecorder* recorder() const;
 
     float minConfidence;
+    // Class index of Person: its boxes come from the tracks, not from the detections.
+    int personClass;
     Logger log;
     RgaSnapshot snapshot;
     FrameSlot slot;
@@ -281,7 +283,7 @@ bool BranchState::encodeStreams(double seconds, BranchTimes& times) {
 void BranchState::buildBoxes(const FrameData& data) {
     boxes.clear();
     for (const Detection& detection : data.detections) {
-        if (detection.classId == defaultPersonClass || detection.confidence < minConfidence) {
+        if (detection.classId == personClass || detection.confidence < minConfidence) {
             continue;
         }
         boxes.push_back(
@@ -292,7 +294,7 @@ void BranchState::buildBoxes(const FrameData& data) {
         const bool violator{std::find(data.violators.begin(), data.violators.end(), track.id) !=
                             data.violators.end()};
         boxes.push_back(OverlayBox{PixelBox{track.left, track.top, track.right, track.bottom},
-                                   defaultPersonClass, violator, track.score, track.id});
+                                   personClass, violator, track.score, track.id});
     }
 }
 
@@ -426,8 +428,14 @@ std::optional<OutputBranch> OutputBranch::create(const AppOptions& options,
     OverlayConfig overlayConfig;
     overlayConfig.size = size;
     overlayConfig.stride = snapshot->stride();
+    const ClassMap& classes{options.classes};
+    overlayConfig.classStyles =
+        classStylesFor(classes.names.size(), classes.person, classes.noHelmet, classes.noVest);
+    LabelConfig labelConfig;
+    labelConfig.classNames = classes.names;
+    labelConfig.personClass = classes.person;
     std::optional<RgaOverlay> overlay{RgaOverlay::create(overlayConfig, log)};
-    std::optional<RgaLabels> labels{RgaLabels::create(overlayConfig, LabelConfig{}, log)};
+    std::optional<RgaLabels> labels{RgaLabels::create(overlayConfig, labelConfig, log)};
     if ((images && !imageCopier) || !slot || !overlay || !labels) {
         return std::nullopt;
     }
@@ -455,7 +463,7 @@ std::optional<OutputBranch> OutputBranch::create(const AppOptions& options,
         }
         lanes.push_back(std::move(*lane));
     }
-    auto state{std::make_unique<BranchState>(options.minConfidence, log, *snapshot,
+    auto state{std::make_unique<BranchState>(options.minConfidence, classes.person, log, *snapshot,
                                              std::move(*slot), imageCopier, std::move(*overlay),
                                              std::move(*labels), std::move(lanes), std::move(hub))};
     return std::optional<OutputBranch>{OutputBranch{std::move(state)}};

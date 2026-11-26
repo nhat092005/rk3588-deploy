@@ -11,7 +11,7 @@
 #include "violation_rule.h"
 
 namespace {
-constexpr int personClass{4};
+constexpr int personClass{5};
 constexpr int noHelmetClass{1};
 constexpr int noVestClass{2};
 constexpr int helmetClass{0};

@@ -9,9 +9,10 @@
 #include "logger.h"
 #include "postprocess.h"
 
-/** @brief Class index of Person in the model of this project (Helmet, NoHelmet, NoVest, Vest,
- *         Person). */
-constexpr int defaultPersonClass{4};
+/** @brief Class index of Person in the 6-class model of this project (Helmet, NoHelmet, NoVest,
+ *         Vest, RegularHat, Person). The application takes the indices from the class list of the
+ *         config (ClassMap); these are the defaults of a ViolationConfig. */
+constexpr int defaultPersonClass{5};
 /** @brief Class index of NoHelmet. */
 constexpr int defaultNoHelmetClass{1};
 /** @brief Class index of NoVest. */

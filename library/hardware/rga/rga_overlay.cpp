@@ -1,6 +1,7 @@
 #include "rga_overlay.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 #include "im2d.hpp"
@@ -25,10 +26,33 @@ int evenUp(double value) noexcept {
     return (rounded + evenMask) & ~evenMask;
 }
 
+constexpr std::array<std::uint32_t, 3> plainColors{helmetColor, vestColor, regularHatColor};
+
 bool sameStyle(const BoxStyle& first, const BoxStyle& second) noexcept {
     return first.color == second.color && first.thickness == second.thickness;
 }
 } // namespace
+
+std::vector<BoxStyle> classStylesFor(std::size_t count, int person, int noHelmet, int noVest) {
+    std::vector<BoxStyle> styles;
+    styles.reserve(count);
+    std::size_t plain{0};
+    for (std::size_t index{0}; index < count; ++index) {
+        std::uint32_t color{unknownColor};
+        const auto classId{static_cast<int>(index)};
+        if (classId == person) {
+            color = personColor;
+        } else if (classId == noHelmet) {
+            color = noHelmetColor;
+        } else if (classId == noVest) {
+            color = noVestColor;
+        } else if (plain < plainColors.size()) {
+            color = plainColors[plain++];
+        }
+        styles.push_back(BoxStyle{color, defaultBoxThickness});
+    }
+    return styles;
+}
 
 RgaOverlay::RgaOverlay(const OverlayConfig& config, const Logger& logger)
     : settings{config}, log{logger} {

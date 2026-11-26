@@ -1,6 +1,7 @@
 // One RKNN model, repeated inference, optional raw input and output dump.
 // Usage: probe_infer model.rknn loops [input.raw output.f32]
-//   input.raw : uint8 NHWC 1x640x640x3, same bytes as the Python preprocess. Default: fixed random.
+//   input.raw : uint8 NHWC, exactly the input size of the model (640x640x3 or 960x960x3), same
+//               bytes as the Python preprocess. Default: fixed random.
 //   output.f32: first output of the first run, float32 as returned by want_float=1.
 // Prints per-run wall time of rknn_run (not a benchmark: frequencies are not locked) and RSS.
 // Exit code 0 on success, 1 when loading, inference or destroy fails, 2 on bad arguments or files.
@@ -22,8 +23,6 @@
 #include "rknn_api.h"
 
 namespace {
-constexpr std::size_t imageSide{640};
-constexpr std::size_t imageChannels{3};
 constexpr int warmupRuns{10};
 constexpr int rssProbeRun{20};
 constexpr unsigned int fixedSeed{42};
@@ -121,8 +120,7 @@ std::optional<std::vector<char>> readFile(const char* path) {
 
 // The model input: the bytes of `inputPath`, which must have exactly the input size, or fixed
 // pseudo-random bytes when no path is given.
-std::optional<std::vector<char>> makeImage(const char* inputPath) {
-    const std::size_t imageBytes{imageSide * imageSide * imageChannels};
+std::optional<std::vector<char>> makeImage(const char* inputPath, std::size_t imageBytes) {
     if (inputPath == nullptr) {
         std::vector<char> image(imageBytes);
         std::srand(fixedSeed);
@@ -162,7 +160,7 @@ public:
     RknnModel& operator=(const RknnModel&) = delete;
     RknnModel(RknnModel&& other) noexcept
         : context{std::exchange(other.context, 0)}, loaded{std::exchange(other.loaded, false)},
-          log{other.log}, outputs{std::move(other.outputs)} {}
+          log{other.log}, outputs{std::move(other.outputs)}, inputSize{other.inputSize} {}
     RknnModel& operator=(RknnModel&& other) noexcept {
         if (this != &other) {
             destroyAndLog();
@@ -170,6 +168,7 @@ public:
             loaded = std::exchange(other.loaded, false);
             log = other.log;
             outputs = std::move(other.outputs);
+            inputSize = other.inputSize;
         }
         return *this;
     }
@@ -184,6 +183,10 @@ public:
     [[nodiscard]] std::optional<double> infer(std::vector<char>& image, const char* dumpPath);
     // rknn_destroy. Returns its status, 0 when already destroyed. Safe to call twice.
     [[nodiscard]] int destroy() noexcept;
+    // Bytes of the model input (uint8 NHWC), read from the model.
+    std::size_t inputBytes() const noexcept {
+        return inputSize;
+    }
 
 private:
     RknnModel(rknn_context rawContext, Logger logger) noexcept
@@ -198,6 +201,7 @@ private:
     Logger log;
     // Reused by every inference, so the loop allocates nothing.
     std::vector<rknn_output> outputs;
+    std::size_t inputSize{0};
 };
 
 bool RknnModel::describe() {
@@ -218,6 +222,15 @@ bool RknnModel::describe() {
     }
     log.info("n_input=", counts.n_input, " n_output=", counts.n_output);
     outputs.resize(counts.n_output);
+    rknn_tensor_attr attr{};
+    attr.index = 0;
+    status = rknn_query(context, RKNN_QUERY_INPUT_ATTR, &attr, sizeof(attr));
+    if (status != 0) {
+        log.error("rknn_query(INPUT_ATTR) ret=", status);
+        return false;
+    }
+    inputSize = attr.size;
+    log.info("input bytes=", inputSize);
     return true;
 }
 
@@ -339,15 +352,14 @@ int main(int argc, char** argv) {
         log.error("cannot read model file: ", options->modelPath);
         return exitUsage;
     }
-    std::optional<std::vector<char>> image{makeImage(options->inputPath)};
-    if (!image) {
-        log.error("bad input file");
-        return exitUsage;
-    }
-
     std::optional<RknnModel> model{RknnModel::load(*blob, log)};
     if (!model) {
         return EXIT_FAILURE;
+    }
+    std::optional<std::vector<char>> image{makeImage(options->inputPath, model->inputBytes())};
+    if (!image) {
+        log.error("bad input file: it must have exactly ", model->inputBytes(), " bytes");
+        return exitUsage;
     }
     const Stats stats{runLoops(*model, *image, *options)};
     logStats(stats, *options, log);
