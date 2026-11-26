@@ -4,13 +4,19 @@
 // OUTDIR/results.csv (axis, core, variant, status, message). The analysis is done off the board.
 // Usage: probe_rga_shift OUTDIR FRAMEDIR    runs every FRAMEDIR/*.nv12 (3840x2160) with R2, R30 and
 // R30 cropped by 4 pixels on each axis, writes OUTDIR/<name>_<config>.rgb and OUTDIR/frames.csv.
-// A variant "A<n>" is the source rectangle x=n, width=W-n; "B<n>" is x=0, width=W-n (the same for
-// y and the height on the y axis).
+// Usage: probe_rga_shift --latency [ROUNDS]    times R2, R30, R30 cropped, Ra (kernel's choice) and
+// Ra cropped on one frame, back to back, 300 runs after 30 warmup per round, the configs
+// interleaved over ROUNDS rounds (default 3). Prints one CSV line per config and round. A variant
+// "A<n>" is the source rectangle x=n, width=W-n; "B<n>" is x=0, width=W-n (the same for y and the
+// height on the y axis).
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <algorithm>
+#include <chrono>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -145,15 +151,90 @@ int runFrames(const std::string& outDir, const std::string& frameDir, DmaBuf& so
     log.info("frames done: ", files.size());
     return 0;
 }
+constexpr int warmupRuns{30};
+constexpr int timedRuns{300};
+constexpr int defaultRounds{3};
+constexpr double nanosPerMilli{1.0e6};
+
+double cpuSeconds() {
+    timespec now{};
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &now);
+    return static_cast<double>(now.tv_sec) + (static_cast<double>(now.tv_nsec) * 1.0e-9);
+}
+
+int runLatency(int rounds, DmaBuf& source, const RgaImage& sourceImage, const RgaImage& targetImage,
+               const Logger& log) {
+    struct Config {
+        const char* name;
+        int mask;
+        im_rect rect;
+    };
+    constexpr int crop{4};
+    const im_rect whole{0, 0, frameWidth, frameHeight};
+    const im_rect cropped{crop, crop, frameWidth - crop, frameHeight - crop};
+    const std::array<Config, 5> configs{{{"R2", IM_SCHEDULER_RGA2_CORE0, whole},
+                                         {"R30", IM_SCHEDULER_RGA3_CORE0, whole},
+                                         {"R30c4", IM_SCHEDULER_RGA3_CORE0, cropped},
+                                         {"Ra", IM_SCHEDULER_DEFAULT, whole},
+                                         {"Rac4", IM_SCHEDULER_DEFAULT, cropped}}};
+    fillSource(source, true);
+    if (!source.endCpuAccess()) {
+        return 1;
+    }
+    std::printf("round,config,p50_ms,p95_ms,p99_ms,mean_ms,cpu_ms_per_frame\n");
+    for (int round{0}; round < rounds; ++round) {
+        for (const Config& config : configs) {
+            std::vector<double> millis;
+            millis.reserve(timedRuns);
+            for (int index{0}; index < warmupRuns; ++index) {
+                if (letterbox(sourceImage, targetImage, config.rect, config.mask) !=
+                    IM_STATUS_SUCCESS) {
+                    log.error(config.name, ": the job failed");
+                    return 1;
+                }
+            }
+            const double cpuStart{cpuSeconds()};
+            for (int index{0}; index < timedRuns; ++index) {
+                const auto start{std::chrono::steady_clock::now()};
+                const IM_STATUS status{
+                    letterbox(sourceImage, targetImage, config.rect, config.mask)};
+                const auto stop{std::chrono::steady_clock::now()};
+                if (status != IM_STATUS_SUCCESS) {
+                    log.error(config.name, ": the job failed");
+                    return 1;
+                }
+                millis.push_back(
+                    static_cast<double>(
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start)
+                            .count()) /
+                    nanosPerMilli);
+            }
+            const double cpuMillis{(cpuSeconds() - cpuStart) * 1000.0 / timedRuns};
+            std::sort(millis.begin(), millis.end());
+            double sum{0.0};
+            for (const double value : millis) {
+                sum += value;
+            }
+            const auto percentile = [&millis](double fraction) {
+                return millis.at(static_cast<std::size_t>(fraction * (millis.size() - 1)));
+            };
+            std::printf("%d,%s,%.3f,%.3f,%.3f,%.3f,%.3f\n", round, config.name, percentile(0.50),
+                        percentile(0.95), percentile(0.99),
+                        sum / static_cast<double>(millis.size()), cpuMillis);
+        }
+    }
+    return 0;
+}
 } // namespace
 
 int main(int argc, char** argv) {
     const Logger log{"PROBE_RGA_SHIFT", LogLevel::Info};
-    if (argc != 2 && argc != 3) {
-        log.error("usage: probe_rga_shift OUTDIR [FRAMEDIR]");
+    const bool latency{argc >= 2 && std::string{argv[1]} == "--latency"};
+    if (!latency && argc != 2 && argc != 3) {
+        log.error("usage: probe_rga_shift OUTDIR [FRAMEDIR] | --latency [ROUNDS]");
         return 2;
     }
-    const std::string outDir{argv[1]};
+    const std::string outDir{latency ? "" : argv[1]};
     const std::size_t nv12Bytes{static_cast<std::size_t>(frameWidth) * frameHeight * 3 / 2};
     const std::size_t targetBytes{static_cast<std::size_t>(modelSide) * modelSide * 3};
     std::optional<DmaBuf> source{make(nv12Bytes, log)};
@@ -165,6 +246,10 @@ int main(int argc, char** argv) {
     std::optional<RgaImage> targetImage{RgaImage::import(*target, log)};
     if (!sourceImage || !targetImage) {
         return 1;
+    }
+    if (latency) {
+        return runLatency(argc >= 3 ? std::atoi(argv[2]) : defaultRounds, *source, *sourceImage,
+                          *targetImage, log);
     }
     if (argc == 3) {
         return runFrames(outDir, argv[2], *source, *target, *sourceImage, *targetImage, log);
