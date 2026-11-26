@@ -45,6 +45,7 @@ endfunction()
 
 add_subdirectory(common)
 add_subdirectory(stage/preprocess)
+add_subdirectory(stage/draw)
 
 add_bench(
     stage
@@ -57,4 +58,16 @@ add_bench(
     bench_platform_lib
     bench_npu_load_lib
     bench_preprocess_lib
+)
+
+add_bench(
+    stage
+    bench_draw
+    LIBS
+    bench_timing_lib
+    bench_frame_lib
+    bench_dump_lib
+    bench_json_lib
+    bench_platform_lib
+    bench_draw_lib
 )
