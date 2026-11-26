@@ -43,6 +43,18 @@ struct PostprocessConfig {
     float iouThreshold{defaultIouThreshold};
 };
 
+/**
+ * @brief The output layout of a YOLOv8 head, read from the shapes the model declares.
+ * @param inputSide Side of the square model input in pixels, a multiple of 32.
+ * @param outputDims Shape of output 0, {1, 4 + classCount, anchorCount}.
+ * @return A config with classCount, anchorCount and modelSize set (the other fields stay at their
+ *         defaults), or empty when the shape is not a YOLOv8 head for that input: the anchors of
+ *         the strides 8, 16 and 32 are (S/8)^2 + (S/16)^2 + (S/32)^2, which is 8400 for 640 and
+ *         18900 for 960.
+ */
+std::optional<PostprocessConfig> postprocessConfigOf(int inputSide,
+                                                     const std::vector<std::uint32_t>& outputDims);
+
 /** @brief How the letterboxed model input maps back to the image that was letterboxed. */
 struct SourceMapping {
     /** Scale from the image to the model input (LetterboxLayout::gain). */

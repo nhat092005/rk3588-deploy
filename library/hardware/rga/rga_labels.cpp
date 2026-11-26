@@ -8,22 +8,27 @@
 #include "label_font.h"
 
 namespace {
-// One slot of the atlas: wide enough for maxLabelChars, as high as a label.
-constexpr int slotWidth{640};
-constexpr std::size_t slotStride{static_cast<std::size_t>(slotWidth) * labelPixelBytes};
-constexpr std::size_t slotWidthSize{static_cast<std::size_t>(slotWidth)};
 // The RGA takes a job of at most 50 tasks, a label is one.
 constexpr std::size_t jobLabels{40};
 constexpr std::string_view unknownName{"?"};
+
+// Width alignment of the RGA buffers (the same 16 as the sweeps of bench_preprocess).
+constexpr int widthAlignment{16};
+
+// One slot of the atlas: as high as the longest label (maxLabelChars) and as wide, rounded up to
+// the RGA width alignment.
+int slotWidth() noexcept {
+    const int width{labelSize(maxLabelChars).width};
+    return ((width + widthAlignment - 1) / widthAlignment) * widthAlignment;
+}
 
 int slotHeight() noexcept {
     return labelSize(maxLabelChars).height;
 }
 
-static_assert((maxLabelChars * static_cast<std::size_t>(glyphWidth * labelScale)) +
-                      static_cast<std::size_t>(2 * labelPadding) <=
-                  slotWidthSize,
-              "a slot holds the longest label");
+std::size_t slotStride() noexcept {
+    return static_cast<std::size_t>(slotWidth()) * labelPixelBytes;
+}
 } // namespace
 
 RgaLabels::RgaLabels(const OverlayConfig& overlayConfig, LabelConfig labelConfig, Logger logger,
@@ -41,7 +46,8 @@ std::optional<RgaLabels> RgaLabels::create(const OverlayConfig& overlay, const L
                   labels.capacity, " names ", labels.classNames.size());
         return std::nullopt;
     }
-    const std::size_t bytes{labels.capacity * static_cast<std::size_t>(slotHeight()) * slotStride};
+    const std::size_t bytes{labels.capacity * static_cast<std::size_t>(slotHeight()) *
+                            slotStride()};
     std::optional<DmaBuf> buffer{DmaBuf::allocate(DmaBufConfig{lowHeap, bytes}, log)};
     if (!buffer) {
         return std::nullopt;
@@ -83,9 +89,9 @@ void RgaLabels::renderOne(const OverlayBox& box) noexcept {
     const bool below{box.violator || box.classId == labels.personClass};
     const std::size_t slot{placed.size()};
     std::uint8_t* pixels{static_cast<std::uint8_t*>(atlas.data()) +
-                         (slot * static_cast<std::size_t>(slotHeight()) * slotStride)};
+                         (slot * static_cast<std::size_t>(slotHeight()) * slotStride())};
     renderLabel(std::string_view{text.data(), length},
-                LabelColors{style.color, textColorFor(style.color)}, pixels, slotStride);
+                LabelColors{style.color, textColorFor(style.color)}, pixels, slotStride());
     placed.push_back(Placed{slot, size, placeLabel(box.box, below, size, overlay.size)});
 }
 
@@ -110,7 +116,7 @@ void RgaLabels::render(const std::vector<OverlayBox>& boxes) noexcept {
 
 // Copies the slots of the placed labels into the image, in jobs.
 bool RgaLabels::blit(const RgaImage& target) noexcept {
-    const rga_buffer_t source{wrapbuffer_handle(atlasImage.handle(), slotWidth,
+    const rga_buffer_t source{wrapbuffer_handle(atlasImage.handle(), slotWidth(),
                                                 static_cast<int>(labels.capacity) * slotHeight(),
                                                 RK_FORMAT_RGBA_8888)};
     const rga_buffer_t image{wrapbuffer_handle(target.handle(), overlay.size.width,

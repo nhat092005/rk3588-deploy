@@ -13,7 +13,31 @@ constexpr float half{2.0F};
 float overlap(float low, float high, float otherLow, float otherHigh) noexcept {
     return std::max(std::min(high, otherHigh) - std::max(low, otherLow), 0.0F);
 }
+constexpr std::size_t headStrides[]{8, 16, 32};
+constexpr std::size_t headDims{3};
 } // namespace
+
+std::optional<PostprocessConfig> postprocessConfigOf(int inputSide,
+                                                     const std::vector<std::uint32_t>& outputDims) {
+    constexpr std::size_t strideMax{32};
+    if (inputSide <= 0 || static_cast<std::size_t>(inputSide) % strideMax != 0 ||
+        outputDims.size() != headDims || outputDims[0] != 1 || outputDims[1] <= boxChannels) {
+        return std::nullopt;
+    }
+    std::size_t anchors{0};
+    for (const std::size_t stride : headStrides) {
+        const std::size_t cells{static_cast<std::size_t>(inputSide) / stride};
+        anchors += cells * cells;
+    }
+    if (outputDims[2] != anchors) {
+        return std::nullopt;
+    }
+    PostprocessConfig config;
+    config.classCount = outputDims[1] - boxChannels;
+    config.anchorCount = anchors;
+    config.modelSize = inputSide;
+    return config;
+}
 
 Postprocessor::Postprocessor(const PostprocessConfig& config, Logger logger)
     : settings{config}, log{logger}, candidates(config.anchorCount), order(config.anchorCount) {

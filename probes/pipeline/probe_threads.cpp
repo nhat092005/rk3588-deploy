@@ -406,12 +406,15 @@ std::unique_ptr<Rig> buildInputSide(const Options& options, const Logger& log) {
         return nullptr;
     }
     const CameraFormat& format{camera->format()};
+    std::optional<NpuInfer> npu{NpuInfer::create(NpuConfig{options.model, options.cores}, log)};
+    if (!npu) {
+        return nullptr;
+    }
     std::optional<RgaLetterbox> letterbox{RgaLetterbox::create(
         LetterboxConfig{ImageSize{format.width, format.height}, format.bytesPerLine,
-                        defaultModelSize, options.rotation, format.fullRange},
+                        npu->inputSide(), options.rotation, format.fullRange},
         log)};
-    std::optional<NpuInfer> npu{NpuInfer::create(NpuConfig{options.model, options.cores}, log)};
-    if (!letterbox || !npu) {
+    if (!letterbox) {
         return nullptr;
     }
     std::vector<RgaImage> images;

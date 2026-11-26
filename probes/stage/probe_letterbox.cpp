@@ -27,7 +27,8 @@
 #include "rga.h"
 
 namespace {
-constexpr int modelSize{defaultModelSize};
+// The model input of the measured models (this probe has no model).
+constexpr int modelSize{640};
 constexpr long maxDimension{16'384};
 constexpr std::size_t rgbChannels{3};
 constexpr std::uint8_t paddingValue{114};
