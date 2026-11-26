@@ -1,6 +1,7 @@
 // DMA-BUF check: which dma-heap the board's RGA, RKNN and MPP accept.
 // Usage: probe_dmabuf model.rknn
-//   model.rknn: a model with a 1x640x640x3 uint8 input (the project's YOLO export).
+//   model.rknn: a model with a square 3 channel uint8 input (the project's YOLO export, 640 or
+//   960).
 // For each heap (system, system-uncached) the probe runs four checks:
 //   map  : allocate 4K NV12 bytes, mmap, write and read back, DMA_BUF_IOCTL_SYNC start and end.
 //   rga  : resize a 1920x1080 NV12 frame to 640x360 between two heap buffers, compare with the
@@ -59,8 +60,7 @@ constexpr std::int32_t encBitrate{8'000'000};
 constexpr std::int64_t encTimeoutMs{2000};
 constexpr std::size_t noiseOverFlat{4};
 
-// RKNN input: uint8 NHWC 1x640x640x3.
-constexpr std::size_t modelInputBytes{640UL * 640UL * 3UL};
+// RKNN input: uint8 NHWC, the size of the model.
 constexpr unsigned int fixedSeed{42};
 constexpr unsigned int byteMask{0xFF};
 
@@ -803,6 +803,15 @@ bool checkMpp(const char* heap, const Logger& log) {
 
 // Reference run with rknn_inputs_set, then the same image in a heap buffer. Outputs must match.
 bool checkRknn(const char* heap, const RknnContext& model, const Logger& log) {
+    rknn_tensor_attr attr{};
+    attr.index = 0;
+    const int queried{rknn_query(model.get(), RKNN_QUERY_INPUT_ATTR, &attr, sizeof(attr))};
+    if (queried != 0) {
+        log.error("rknn_query(INPUT_ATTR) ret=", queried);
+        return false;
+    }
+    log.info("RKNN input: size=", attr.size, " size_with_stride=", attr.size_with_stride);
+    const std::size_t modelInputBytes{attr.size};
     std::vector<std::uint8_t> image{makeImage(modelInputBytes)};
     const std::optional<std::vector<char>> reference{runWithCopy(model, image, log)};
     if (!reference) {
@@ -812,14 +821,6 @@ bool checkRknn(const char* heap, const RknnContext& model, const Logger& log) {
     if (!buffer || !storeBytes(*buffer, image) || !buffer->endCpuAccess()) {
         return false;
     }
-    rknn_tensor_attr attr{};
-    attr.index = 0;
-    const int queried{rknn_query(model.get(), RKNN_QUERY_INPUT_ATTR, &attr, sizeof(attr))};
-    if (queried != 0) {
-        log.error("rknn_query(INPUT_ATTR) ret=", queried);
-        return false;
-    }
-    log.info("RKNN input: size=", attr.size, " size_with_stride=", attr.size_with_stride);
     attr.type = RKNN_TENSOR_UINT8;
     attr.fmt = RKNN_TENSOR_NHWC;
     const std::optional<RknnInputMem> attached{RknnInputMem::attach(model, *buffer, attr, log)};

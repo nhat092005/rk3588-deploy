@@ -6,6 +6,7 @@
 #include <string_view>
 #include <vector>
 
+#include "class_map.h"
 #include "jpeg_encoder.h"
 #include "logger.h"
 #include "recording_retention.h"
@@ -86,6 +87,10 @@ struct AppOptions {
     /** How the video files (the clip of a violation, the archive and the session) are stored: raw
      *  H.265 or fragmented MP4. */
     VideoFormat fileFormat{VideoFormat::H265};
+    /** The classes of the model by index and the roles of Person, NoHelmet and NoVest. The config
+     *  file gives them as `classes`; without it these are the 6 classes of the project. The class
+     *  count of the model must match (checked when the model is loaded). */
+    ClassMap classes{defaultClassMap()};
     /** Violation rule: seconds before a violation is reported, seconds of break that do not end
      *  it, and the lowest confidence of a NoHelmet or NoVest box. */
     double holdSeconds{defaultHoldSeconds};

@@ -75,7 +75,7 @@ constexpr std::size_t rotationArg{4};
 constexpr std::size_t modelArg{5};
 constexpr std::size_t designArg{6};
 constexpr std::size_t framesArg{7};
-constexpr int classCount{5};
+constexpr int classCount{6};
 constexpr float boxScore{0.8F};
 constexpr std::uint64_t seed{88172645463325252ULL};
 constexpr unsigned shiftLeftFirst{13U};

@@ -130,7 +130,7 @@ std::vector<std::vector<Detection>> makeFrames(const Options& options) {
     constexpr float dipChance{0.1F};
     constexpr float minDip{0.12F};
     constexpr float maxDip{0.24F};
-    constexpr int personClass{4};
+    constexpr int personClass{5};
 
     Random random{seed};
     std::vector<Walker> walkers(static_cast<std::size_t>(options.people));

@@ -77,6 +77,10 @@ private:
                 if (!readGroup(std::move(entry), group)) {
                     return false;
                 }
+            } else if (more() && peek() == '[') {
+                if (!readList(std::move(entry), group)) {
+                    return false;
+                }
             } else {
                 if (!readValue(entry)) {
                     return refuse("expected a string, a number, true or false");
@@ -105,6 +109,81 @@ private:
         const std::string name{parent.empty() ? entry.key : parent + "." + entry.key};
         result.entries.push_back(std::move(entry));
         return readMembers(name);
+    }
+
+    // A list of objects of string pairs, only at the top: its entry, then for each element an
+    // Object entry named by its position and the pairs of the element.
+    bool readList(JsonEntry entry, const std::string& parent) {
+        if (!parent.empty()) {
+            return refuse("an array inside a group");
+        }
+        const std::size_t open{at};
+        ++at;
+        skipSpace();
+        if (!more() || peek() != '{') {
+            at = open;
+            return refuse("an array must be a list of objects");
+        }
+        entry.kind = JsonKind::Array;
+        const std::string name{entry.key};
+        result.entries.push_back(std::move(entry));
+        for (std::size_t position{0};; ++position) {
+            skipSpace();
+            if (!take('{')) {
+                return refuse("expected { for an element of the array");
+            }
+            JsonEntry element;
+            element.group = name;
+            element.key = std::to_string(position);
+            element.kind = JsonKind::Object;
+            result.entries.push_back(std::move(element));
+            if (!readElement(name + "." + std::to_string(position))) {
+                return false;
+            }
+            skipSpace();
+            if (take(',')) {
+                continue;
+            }
+            if (take(']')) {
+                return true;
+            }
+            return refuse("expected , or ] in an array");
+        }
+    }
+
+    // The string pairs of one element of a list, after its opening brace, up to and including its
+    // closing brace.
+    bool readElement(const std::string& group) {
+        skipSpace();
+        if (take('}')) {
+            return true;
+        }
+        while (true) {
+            JsonEntry entry;
+            entry.group = group;
+            skipSpace();
+            if (!readString(entry.key)) {
+                return refuse("expected a key in double quotes");
+            }
+            skipSpace();
+            if (!take(':')) {
+                return refuse("expected : after the key");
+            }
+            skipSpace();
+            entry.kind = JsonKind::String;
+            if (!readString(entry.value)) {
+                return refuse("an element of an array may hold only strings");
+            }
+            result.entries.push_back(std::move(entry));
+            skipSpace();
+            if (take(',')) {
+                continue;
+            }
+            if (take('}')) {
+                return true;
+            }
+            return refuse("expected , or }");
+        }
     }
 
     bool more() const {

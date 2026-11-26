@@ -14,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include "class_map.h"
 #include "dmabuf.h"
 #include "label_text.h"
 #include "logger.h"
@@ -32,8 +33,8 @@ constexpr int firstY{100};
 constexpr int columnStep{150};
 constexpr int rowStep{110};
 constexpr int columns{8};
-constexpr int classCount{5};
-constexpr int personClass{4};
+constexpr int classCount{6};
+constexpr int personClass{5};
 constexpr int manyLabels{48};
 constexpr float testScore{0.5F};
 constexpr float highScore{0.9F};
@@ -65,24 +66,26 @@ enum class Paint : std::uint8_t {
     NoHelmet,
     NoVest,
     Vest,
+    RegularHat,
     Person,
     Violator,
     Black,
 };
 
-constexpr std::array<Rgb, 8> palette{{
+constexpr std::array<Rgb, 9> palette{{
     {64, 64, 64},
     {0, 200, 0},
     {255, 40, 40},
     {255, 140, 0},
     {0, 190, 170},
+    {160, 90, 220},
     {255, 255, 255},
     {255, 230, 0},
     {0, 0, 0},
 }};
 
-constexpr std::array<Paint, classCount> byClass{Paint::Helmet, Paint::NoHelmet, Paint::NoVest,
-                                                Paint::Vest, Paint::Person};
+constexpr std::array<Paint, classCount> byClass{Paint::Helmet, Paint::NoHelmet,   Paint::NoVest,
+                                                Paint::Vest,   Paint::RegularHat, Paint::Person};
 
 class Check {
 public:
@@ -242,8 +245,8 @@ void checkColours(Check& check, const Logger& log) {
     const std::vector<OverlayBox> boxes{
         {cell(Cell{0, 0}), 1, false, 0.87F, -1}, // NoHelmet: red, above
         {cell(Cell{1, 0}), 2, false, 0.78F, -1}, // NoVest: orange, above
-        {cell(Cell{2, 0}), 4, false, 0.95F, 12}, // Person: white, under
-        {cell(Cell{3, 0}), 4, true, 0.95F, 13},  // violator: yellow, under
+        {cell(Cell{2, 0}), 5, false, 0.95F, 12}, // Person: white, under
+        {cell(Cell{3, 0}), 5, true, 0.95F, 13},  // violator: yellow, under
         {cell(Cell{4, 0}), 3, false, 0.91F, -1}, // Vest: teal, above
     };
     check.expect(scene.labels.draw(scene.handle, boxes), "draw succeeds");
@@ -283,8 +286,8 @@ void checkEdgesAndOrder(Check& check, const Logger& log) {
     const PixelBox shared{PixelBox{600.0F, 300.0F, 700.0F, 380.0F}};
     const std::vector<OverlayBox> boxes{
         {top, 1, false, testScore, -1},
-        {shared, 4, true, highScore, 7},
-        {shared, 4, false, highScore, 7},
+        {shared, 5, true, highScore, 7},
+        {shared, 5, false, highScore, 7},
     };
     check.expect(scene.labels.draw(scene.handle, boxes), "draw succeeds");
     check.expect(scene.image.beginCpuAccess(), "CPU access");
@@ -321,14 +324,22 @@ void checkMany(Check& check, const Logger& log) {
     check.expect(scene.image.beginCpuAccess(), "CPU access");
     bool allRight{true};
     for (const OverlayBox& box : boxes) {
-        // "Helmet 50%" is 10 characters, "NoHelmet 50%" 12, "NoVest 50%" 10, "Vest 50%" 8, "Person
-        // 50%" 10.
-        constexpr std::array<std::size_t, classCount> lengths{10, 12, 10, 8, 10};
+        // "Helmet 50%" is 10 characters, "NoHelmet 50%" 12, "NoVest 50%" 10, "Vest 50%" 8,
+        // "RegularHat 50%" 14, "Person 50%" 10.
+        constexpr std::array<std::size_t, classCount> lengths{10, 12, 10, 8, 14, 10};
         allRight = allRight && labelBackground(scene.image, box,
                                                lengths.at(static_cast<std::size_t>(box.classId))) ==
                                    byClass.at(static_cast<std::size_t>(box.classId));
     }
     check.expect(allRight, "every one of 48 labels has the colour of its box");
+}
+
+// The default names and Person index of a LabelConfig are the default class list of the project.
+void checkDefaultsMatchClassMap(Check& check) {
+    const LabelConfig config;
+    const ClassMap map{defaultClassMap()};
+    check.expect(config.classNames == map.names && config.personClass == map.person,
+                 "the default labels are the default classes");
 }
 
 void checkCapacity(Check& check, const Logger& log) {
@@ -355,6 +366,7 @@ int main() {
     checkEdgesAndOrder(check, log);
     checkMany(check, log);
     checkCapacity(check, log);
+    checkDefaultsMatchClassMap(check);
     if (check.ok()) {
         log.info("PASS");
         return EXIT_SUCCESS;

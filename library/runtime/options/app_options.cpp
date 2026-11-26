@@ -16,6 +16,7 @@ constexpr std::size_t programIndex{0};
 constexpr std::string_view helpFlag{"--help"};
 constexpr std::string_view configFlag{"--config"};
 constexpr std::string_view modelKey{"model"};
+constexpr std::string_view classesKey{"classes"};
 
 // A whole number in [low, high], or false for junk, trailing text or a value out of range.
 bool parseWhole(const char* text, std::int64_t low, std::int64_t high, std::int64_t& value) {
@@ -544,6 +545,8 @@ const char* kindName(JsonKind kind) {
         return "a number";
     case JsonKind::Boolean:
         return "true or false";
+    case JsonKind::Array:
+        return "a list";
     case JsonKind::Object:
         break;
     }
@@ -552,6 +555,49 @@ const char* kindName(JsonKind kind) {
 
 bool isAbsolute(std::string_view path) {
     return !path.empty() && path.front() == '/';
+}
+
+// Whether the entry belongs to the `classes` list: its start, an element, or a pair of an element.
+bool inClassList(const JsonEntry& entry) {
+    return entry.group == classesKey ||
+           (entry.group.size() > classesKey.size() &&
+            entry.group.compare(0, classesKey.size(), classesKey) == 0 &&
+            entry.group[classesKey.size()] == '.');
+}
+
+// One entry of the `classes` list into `specs`: an Object entry starts an element, a pair sets its
+// name or its role. false, with the reason logged, for any other key or an unknown role.
+bool addClassEntry(const JsonEntry& entry, const std::string& path, std::vector<ClassSpec>& specs,
+                   const Logger& log) {
+    if (entry.kind == JsonKind::Object) {
+        specs.emplace_back();
+        return true;
+    }
+    ClassSpec& current{specs.back()};
+    if (entry.key == "name") {
+        if (!current.name.empty()) {
+            log.error(path, ": ", entry.group, ".name is given twice");
+            return false;
+        }
+        current.name = entry.value;
+        return true;
+    }
+    if (entry.key == "role") {
+        if (current.role != ClassRole::None) {
+            log.error(path, ": ", entry.group, ".role is given twice");
+            return false;
+        }
+        const std::optional<ClassRole> role{parseClassRole(entry.value)};
+        if (!role) {
+            log.error(path, ": ", entry.group, ".role must be person, no_helmet or no_vest, not ",
+                      entry.value);
+            return false;
+        }
+        current.role = *role;
+        return true;
+    }
+    log.error(path, ": unknown key ", entry.group, ".", entry.key, " (a class has name and role)");
+    return false;
 }
 
 // Puts the entries of one config file into the options. The strings are kept in the result.
@@ -565,8 +611,28 @@ bool applyConfig(const FileText& file, const std::string& path, std::string_view
     // Two strings at most per entry (the value, then the model path joined to baseDir). The
     // vector must not grow later: the options point into its elements.
     result.storage.reserve(json.entries.size() * 2);
+    std::vector<ClassSpec> specs;
+    bool classesGiven{false};
     for (JsonEntry& entry : json.entries) {
         const std::string where{entry.group.empty() ? entry.key : entry.group + "." + entry.key};
+        if (entry.kind == JsonKind::Array) {
+            if (where != classesKey) {
+                log.error(path, ": unknown key ", where);
+                return false;
+            }
+            if (classesGiven) {
+                log.error(path, ": classes is given twice");
+                return false;
+            }
+            classesGiven = true;
+            continue;
+        }
+        if (inClassList(entry)) {
+            if (!addClassEntry(entry, path, specs, log)) {
+                return false;
+            }
+            continue;
+        }
         if (entry.kind == JsonKind::Object) {
             if (!isGroup(where)) {
                 log.error(path, ": unknown group ", where);
@@ -597,6 +663,13 @@ bool applyConfig(const FileText& file, const std::string& path, std::string_view
             log.error(path, ": bad value for ", where, ": ", result.storage.back());
             return false;
         }
+    }
+    if (classesGiven) {
+        std::optional<ClassMap> map{makeClassMap(specs, log)};
+        if (!map) {
+            return false;
+        }
+        result.options.classes = std::move(*map);
     }
     return true;
 }

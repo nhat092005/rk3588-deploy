@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -17,10 +18,11 @@ constexpr std::size_t defaultLabelCapacity{64};
 
 /** @brief The names and the rules of the labels. */
 struct LabelConfig {
-    /** Name by class index. The strings must outlive the object, for example literals. */
-    std::vector<std::string_view> classNames{"Helmet", "NoHelmet", "NoVest", "Vest", "Person"};
+    /** Name by class index. The object keeps its own copy. */
+    std::vector<std::string> classNames{"Helmet", "NoHelmet",   "NoVest",
+                                        "Vest",   "RegularHat", "Person"};
     /** Class index of Person: its label goes under the box, the other labels go above. */
-    int personClass{4};
+    int personClass{5};
     /** Most labels per draw() call, above 0. */
     std::size_t capacity{defaultLabelCapacity};
 };

@@ -50,12 +50,12 @@ constexpr unsigned shiftRight{7U};
 constexpr unsigned shiftLeftSecond{17U};
 constexpr int minDivisor{14};
 constexpr int maxDivisor{8};
-constexpr int classCount{5};
+constexpr int classCount{6};
 constexpr int helmetClass{0};
 constexpr int noHelmetClass{1};
 constexpr int noVestClass{2};
 constexpr int vestClass{3};
-constexpr int personClass{4};
+constexpr int personClass{5};
 constexpr float crowdScore{0.6F};
 
 struct Options {

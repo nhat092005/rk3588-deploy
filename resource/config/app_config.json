@@ -1,5 +1,13 @@
 {
-  "model": "resource/rknn/best-rk3588.rknn",
+  "model": "resource/rknn/ppe6-960-rk3588.rknn",
+  "classes": [
+    {"name": "Helmet"},
+    {"name": "NoHelmet", "role": "no_helmet"},
+    {"name": "NoVest", "role": "no_vest"},
+    {"name": "Vest"},
+    {"name": "RegularHat"},
+    {"name": "Person", "role": "person"}
+  ],
   "camera": {
     "node": "/dev/video11",
     "width": 3840,

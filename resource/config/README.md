@@ -14,6 +14,7 @@
 - The file is read from the folder that holds `bin/`, whatever the current folder. A relative `model` is relative to that folder.
 - A missing default file is fine, a broken one stops the app.
 - Every key is optional except `model`, which the file or `--model` must give.
+- `classes` is a list, not a group, and has no flag (see Classes below).
 - An unknown key or group, a key in the wrong group, a wrong kind of value or a value out of range stops the app and names the key (`camera.width`).
 - Every flag takes a value, `--archive` and `--stream` too (`--archive false`), so a flag can turn off what the file turned on.
 - `violation` holds two groups, `image` and `clip`, and `image`, `clip`, `archive` and `session` each hold a group `downscale` (`violation.clip.downscale.height`). The switch of a group is its `enabled`.
@@ -25,6 +26,7 @@
 | Key | Flag | Default | Kind, range |
 |---|---|---|---|
 | `model` | `--model` | none | string, required |
+| `classes` | none | the 6 classes below | list of `{name, role}`, see Classes |
 | `camera.node` | `--node` | `/dev/video11` | string |
 | `camera.width` | `--width` | 3840 | number, even, 2 to 16384 |
 | `camera.height` | `--height` | 2160 | number, even, 2 to 16384 |
@@ -65,6 +67,32 @@
 | `stream.url` | `--stream-url` | `rtsp://127.0.0.1:8554/live` | string, `rtsp://host[:port]/path` |
 | `run.frames` | `--frames` | 0 | number, 0 to 10^12 (0: no limit) |
 | `run.stats_seconds` | `--stats-seconds` | 1.0 | number, above 0 to 3600 |
+
+## Classes
+
+`classes` lists the classes of the model in the order of its output: the position is the class index. Each one has a `name` (shown in the label) and, for three of them, a `role` that the violation rule uses. A class without a `role` is only drawn.
+
+```json
+"classes": [
+  {"name": "Helmet"},
+  {"name": "NoHelmet", "role": "no_helmet"},
+  {"name": "NoVest", "role": "no_vest"},
+  {"name": "Vest"},
+  {"name": "RegularHat"},
+  {"name": "Person", "role": "person"}
+]
+```
+
+| Role | What the rule does with it |
+|---|---|
+| `person` | The boxes that are tracked. A violation belongs to a person |
+| `no_helmet` | A box of this class inside a person is a missing helmet |
+| `no_vest` | A box of this class inside a person is a missing vest |
+
+- Each of the three roles is given to exactly one class. A name is 1 to 10 characters: letters, digits, `_` or `-` (a label is `! #id name 100%` in 24 characters).
+- Without `classes` the six classes above are used. A model with another class count needs its own list: the app stops at start, before it opens the camera, when the count of the model and the list differ.
+- The name of a role is not stored in the violation: `event.json` keeps `NoHelmet`, `NoVest` and `NoHelmetNoVest` whatever the names are.
+- Colours follow the roles: Person white, `no_helmet` red, `no_vest` orange. The other classes take green, teal and purple in the order of their index, gray after that.
 
 ## Violation switches
 

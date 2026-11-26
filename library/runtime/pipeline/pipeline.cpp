@@ -185,10 +185,27 @@ std::optional<Logic> makeLogic(const AppOptions& options, const NpuInfer& npu, c
     }
     log.info("model: input ", shape->modelSize, ", ", shape->classCount, " classes, ",
              shape->anchorCount, " anchors");
+    const ClassMap& classes{options.classes};
+    if (classes.names.size() != shape->classCount) {
+        log.error("the model has ", shape->classCount, " classes but the config lists ",
+                  classes.names.size(), ": set \"classes\" in the config file to match the model");
+        return std::nullopt;
+    }
+    for (std::size_t index{0}; index < classes.names.size(); ++index) {
+        const int classId{static_cast<int>(index)};
+        const char* role{classId == classes.person     ? " (person)"
+                         : classId == classes.noHelmet ? " (no_helmet)"
+                         : classId == classes.noVest   ? " (no_vest)"
+                                                       : ""};
+        log.info("class ", index, ": ", classes.names[index], role);
+    }
     PostprocessConfig post{*shape};
     post.normalizedBoxes = true;
     post.confThreshold = detectionConfidence;
     ViolationConfig ruleConfig;
+    ruleConfig.personClass = classes.person;
+    ruleConfig.noHelmetClass = classes.noHelmet;
+    ruleConfig.noVestClass = classes.noVest;
     ruleConfig.holdSeconds = options.holdSeconds;
     ruleConfig.gapSeconds = options.gapSeconds;
     ruleConfig.minConfidence = options.minConfidence;
@@ -286,9 +303,13 @@ std::optional<Parts> makeParts(const AppOptions& options, const Logger& log) {
                   inputSide * inputSide * rgbChannels, " (", inputSide, " x ", inputSide, " RGB)");
         return std::nullopt;
     }
-    std::optional<Capture> capture{makeCapture(options, *npu, log)};
+    // Before the camera is opened: a model that does not match the classes stops the run here.
     std::optional<Logic> logic{makeLogic(options, *npu, log)};
-    if (!capture || !logic) {
+    if (!logic) {
+        return std::nullopt;
+    }
+    std::optional<Capture> capture{makeCapture(options, *npu, log)};
+    if (!capture) {
         return std::nullopt;
     }
     const CameraFormat& format{capture->camera.format()};
@@ -552,7 +573,7 @@ bool analyseFrame(PipelineState& state, const InferJob& job, NpuStats& stats) {
         return false;
     }
     const std::vector<Detection>& detections{state.postprocessor.detections()};
-    selectClass(detections, defaultPersonClass, state.persons);
+    selectClass(detections, state.options.classes.person, state.persons);
     const std::vector<TrackedObject>& tracked{state.tracker.update(state.persons)};
     const std::vector<ViolationEvent>& events{
         state.rule.update(job.captureSeconds, tracked, detections)};

@@ -40,6 +40,8 @@ constexpr std::uint32_t noHelmetColor{0x2828FFU};
 constexpr std::uint32_t noVestColor{0x008CFFU};
 /** @brief Vest: teal (0, 190, 170). */
 constexpr std::uint32_t vestColor{0xAABE00U};
+/** @brief RegularHat: purple (160, 90, 220). */
+constexpr std::uint32_t regularHatColor{0xDC5AA0U};
 /** @brief Person: white. */
 constexpr std::uint32_t personColor{0xFFFFFFU};
 /** @brief A person with a confirmed violation: yellow (255, 230, 0). */
@@ -47,15 +49,29 @@ constexpr std::uint32_t violatorColor{0x00E6FFU};
 /** @brief A class without a style: gray. */
 constexpr std::uint32_t unknownColor{0x808080U};
 
-/** @brief The styles of this project's model by class index: Helmet, NoHelmet, NoVest, Vest,
- *         Person. */
-constexpr std::array<BoxStyle, 5> defaultClassStyles{{
+/** @brief The styles of the 6-class model of this project by class index: Helmet, NoHelmet,
+ *         NoVest, Vest, RegularHat, Person. The application builds the styles from its class list
+ *         instead (see classStylesFor below). */
+constexpr std::array<BoxStyle, 6> defaultClassStyles{{
     {helmetColor, defaultBoxThickness},
     {noHelmetColor, defaultBoxThickness},
     {noVestColor, defaultBoxThickness},
     {vestColor, defaultBoxThickness},
+    {regularHatColor, defaultBoxThickness},
     {personColor, defaultBoxThickness},
 }};
+
+/**
+ * @brief The styles of a model with `count` classes, by class index. The classes with a role keep
+ *        their colour: Person white, NoHelmet red, NoVest orange. The others take, in the order of
+ *        their index, Helmet green, Vest teal and RegularHat purple, and gray after that.
+ * @param count Number of classes.
+ * @param person Index of the Person class.
+ * @param noHelmet Index of the NoHelmet class.
+ * @param noVest Index of the NoVest class.
+ * @return One style per class, the line width defaultBoxThickness.
+ */
+std::vector<BoxStyle> classStylesFor(std::size_t count, int person, int noHelmet, int noVest);
 
 /** @brief What to draw on and with which styles. */
 struct OverlayConfig {

@@ -641,10 +641,10 @@ void checkConfigOrder(Check& check, const fs::path& root) {
 
 void checkConfigModel(Check& check, const fs::path& root) {
     const std::string base{root.string()};
-    writeDefaultConfig(root, R"({"model": "resource/rknn/best-rk3588.rknn"})");
+    writeDefaultConfig(root, R"({"model": "resource/rknn/ppe6-960-rk3588.rknn"})");
     const ParseResult relative{parseIn(base, {})};
     check.expect(relative.status == ParseStatus::Run &&
-                     relative.options.modelPath == base + "/resource/rknn/best-rk3588.rknn",
+                     relative.options.modelPath == base + "/resource/rknn/ppe6-960-rk3588.rknn",
                  "a relative model is relative to the application folder");
 
     writeDefaultConfig(root, R"({"model": "/abs/m.rknn"})");
@@ -694,6 +694,48 @@ void checkConfigFiles(Check& check, const fs::path& root) {
     check.expect(parseIn(base, {"--config", root.c_str(), "--model", "m"}).status ==
                      ParseStatus::Invalid,
                  "--config with a folder");
+}
+
+void checkConfigClasses(Check& check, const fs::path& root) {
+    const std::string base{root.string()};
+    writeDefaultConfig(root, R"({"model": "m"})");
+    const ParseResult none{parseIn(base, {})};
+    check.expect(none.status == ParseStatus::Run && none.options.classes.names.size() == 6 &&
+                     none.options.classes.names[4] == "RegularHat" &&
+                     none.options.classes.person == 5 && none.options.classes.noHelmet == 1 &&
+                     none.options.classes.noVest == 2,
+                 "without classes the 6 classes of the project are used");
+
+    writeDefaultConfig(root, R"({"model": "m", "classes": [
+        {"name": "Helmet"}, {"name": "NoHelmet", "role": "no_helmet"},
+        {"name": "NoVest", "role": "no_vest"}, {"name": "Vest"},
+        {"name": "RegularHat"}, {"name": "Person", "role": "person"}]})");
+    const ParseResult six{parseIn(base, {})};
+    check.expect(six.status == ParseStatus::Run && six.options.classes.names.size() == 6 &&
+                     six.options.classes.names[0] == "Helmet" &&
+                     six.options.classes.names[5] == "Person" && six.options.classes.person == 5 &&
+                     six.options.classes.noHelmet == 1 && six.options.classes.noVest == 2,
+                 "classes: the 6 classes with their roles");
+
+    writeDefaultConfig(root, R"({"classes": [
+        {"name": "Helmet"}, {"role": "no_helmet", "name": "NoHelmet"},
+        {"name": "NoVest", "role": "no_vest"}, {"name": "Vest"},
+        {"name": "Person", "role": "person"}], "model": "m", "run": {"frames": 9}})");
+    const ParseResult five{parseIn(base, {})};
+    check.expect(five.status == ParseStatus::Run && five.options.classes.names.size() == 5 &&
+                     five.options.classes.person == 4 && five.options.classes.noHelmet == 1 &&
+                     five.options.frames == 9,
+                 "classes: a 5-class list, the order of keys is free");
+
+    writeDefaultConfig(root, R"({"model": "m", "classes": [
+        {"name": "Person", "role": "person"}, {"name": "NoVest", "role": "no_vest"},
+        {"name": "NoHelmet", "role": "no_helmet"}]})");
+    const ParseResult moved{parseIn(base, {})};
+    check.expect(moved.status == ParseStatus::Run && moved.options.classes.person == 0 &&
+                     moved.options.classes.noVest == 1 && moved.options.classes.noHelmet == 2,
+                 "classes: the roles follow the position");
+    check.expect(parseIn(base, {"--model", "x"}).options.classes.person == 0,
+                 "classes: the command line does not reset them");
 }
 
 void checkConfigRefusals(Check& check, const fs::path& root) {
@@ -774,6 +816,29 @@ void checkConfigRefusals(Check& check, const fs::path& root) {
         {R"({"model": true})", "a boolean for the model"},
         {R"({"model": 5})", "a number for the model"},
         {R"({"model": ""})", "an empty model"},
+        {R"({"model": "m", "classes": []})", "an empty class list"},
+        {R"({"model": "m", "classes": ["Helmet"]})", "a class list of strings"},
+        {R"({"model": "m", "classes": {"name": "Helmet"}})", "classes as a group"},
+        {R"({"model": "m", "classes": "Helmet"})", "classes as a string"},
+        {R"({"model": "m", "camera": {"classes": [{"name": "A"}]}})", "classes inside a group"},
+        {R"({"model": "m", "labels": [{"name": "A"}]})", "an unknown list"},
+        {R"({"model": "m", "classes": [{"name": "A", "role": "person"}], "classes": []})",
+         "classes given twice"},
+        {R"({"model": "m", "classes": [{"name": "A", "color": "red"}]})", "an unknown class key"},
+        {R"({"model": "m", "classes": [{"role": "person"}]})", "a class without a name"},
+        {R"({"model": "m", "classes": [{"name": "A", "name": "B"}]})", "a name given twice"},
+        {R"({"model": "m", "classes": [{"name": "A", "role": "person", "role": "no_vest"}]})",
+         "a role given twice"},
+        {R"({"model": "m", "classes": [{"name": "A", "role": "boss"}]})", "an unknown role"},
+        {R"({"model": "m", "classes": [{"name": "A", "role": "person"}]})",
+         "no no_helmet and no no_vest"},
+        {R"({"model": "m", "classes": [{"name": "A", "role": "person"},
+           {"name": "B", "role": "person"}, {"name": "C", "role": "no_helmet"},
+           {"name": "D", "role": "no_vest"}]})",
+         "person given twice"},
+        {R"({"model": "m", "classes": [{"name": "A very long name", "role": "person"},
+           {"name": "B", "role": "no_helmet"}, {"name": "C", "role": "no_vest"}]})",
+         "a name too long for the label"},
         {R"({"model": "m", "rule": {"min_confidence": 1.5}})", "a confidence above 1"},
         {R"({"model": "m", "violation": {"keep_days": 0}})", "keep_days 0"},
         {R"({"model": "m", "violation": {"min_free_gb": -1}})", "violation min_free_gb below 0"},
@@ -809,6 +874,7 @@ void checkConfig(Check& check) {
     checkConfigOrder(check, *root);
     checkConfigModel(check, *root);
     checkConfigFiles(check, *root);
+    checkConfigClasses(check, *root);
     checkConfigRefusals(check, *root);
     std::error_code error;
     fs::remove_all(*root, error);

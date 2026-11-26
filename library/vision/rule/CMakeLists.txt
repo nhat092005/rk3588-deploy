@@ -1,4 +1,4 @@
-add_library(rule_lib STATIC violation_rule.cpp)
+add_library(rule_lib STATIC violation_rule.cpp class_map.cpp)
 
 target_include_directories(rule_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
