@@ -71,3 +71,15 @@ add_bench(
     bench_platform_lib
     bench_draw_lib
 )
+
+add_bench(
+    stage
+    bench_encode
+    LIBS
+    bench_timing_lib
+    bench_json_lib
+    bench_platform_lib
+    video_lib
+    mpp_lib
+    dmabuf_lib
+)
