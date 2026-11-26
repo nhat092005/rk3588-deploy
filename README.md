@@ -174,7 +174,7 @@ Cross-compile only. Run on the board with the frequencies locked (`sh/env/lock_f
 | `accuracy/detect_postprocess.py` | Numpy post-processing of the three detector families (port of the `rknn_model_zoo` v2.3.2 one, confidence 0.001, NMS 0.65); tests in `accuracy/test_detect_postprocess.py` and `accuracy/test_canvas.py` (`pytest`) |
 | `plot/plot_map.py` | Figure 5 (change of detection mAP per method, all pictures and the scaled-up ones) and its table from `map.json` of `accuracy/eval_map.py`; `--canvas WxH --name fig6_map_change` for the single panel figure 6 |
 | `generate/make_label_font.py` | Write `label_font.h` |
-| `generate/make_postprocess_fixture.py` | Post-processing test data |
+| `generate/make_postprocess_fixture.py` | Post-processing test data: `make_postprocess_fixture.py DUMP.npz > test/vision/postproc/postprocess_fixture.h`, with the first three images of a sparse board dump of `infer_dump.py` (rk3588-ai, here the 6-class 960 model `ppe6_yolov8s_960_ext`) and the detections of `model_io.postprocess_raw`, equal scores taken by rising anchor like the C++ code. Needs the repo `.venv` |
 | `generate/make_tracker_fixture.py` | Tracker test data (needs `lap`: `make sync`) |
 
 ## Conventions
