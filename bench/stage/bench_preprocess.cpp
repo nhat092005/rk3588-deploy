@@ -67,6 +67,8 @@ constexpr int defaultHeight{2160};
 constexpr int defaultRuns{300};
 constexpr int defaultWarmup{30};
 constexpr int maxCount{100'000};
+// The model input of the measured models, the default of --target (not read from a model).
+constexpr int defaultTarget{640};
 constexpr int minTarget{16};
 constexpr int maxTarget{4096};
 constexpr int defaultSeconds{10};
@@ -80,7 +82,7 @@ enum class Sweep : std::uint8_t { None, Source, Output, Fps };
 
 struct Options {
     ImageSize size{defaultWidth, defaultHeight};
-    int target{defaultModelSize};
+    int target{defaultTarget};
     Sweep sweep{Sweep::None};
     Pattern pattern{Pattern::Gradient};
     bool patternGiven{false};

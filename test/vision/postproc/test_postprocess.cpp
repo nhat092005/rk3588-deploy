@@ -104,11 +104,32 @@ bool checkRejects(const Logger& log) {
     }
     return configsRejected && shapeRejected;
 }
+
+// The layout read from the shapes of a model: 640 and 960 inputs, 5 and 6 classes, and shapes that
+// are not a YOLOv8 head.
+bool checkConfigOf() {
+    const auto five640{postprocessConfigOf(640, {1, 9, 8400})};
+    const auto six960{postprocessConfigOf(960, {1, 10, 18900})};
+    const bool read{five640 && five640->classCount == 5 && five640->anchorCount == 8400 &&
+                    five640->modelSize == 640 && six960 && six960->classCount == 6 &&
+                    six960->anchorCount == 18900 && six960->modelSize == 960};
+    const bool refused{!postprocessConfigOf(960, {1, 9, 8400}) && // anchors of another size
+                       !postprocessConfigOf(640, {1, 4, 8400}) && // no class channel
+                       !postprocessConfigOf(640, {2, 9, 8400}) && // batch above 1
+                       !postprocessConfigOf(640, {9, 8400}) &&    // not 3 dimensions
+                       !postprocessConfigOf(650, {1, 9, 8400}) && // not a multiple of 32
+                       !postprocessConfigOf(0, {1, 9, 8400})};    // no input size
+    return read && refused;
+}
 } // namespace
 
 int main() {
     const Logger log{"TEST_POST", LogLevel::Debug};
     bool passed{checkRejects(log)};
+    if (!checkConfigOf()) {
+        log.error("postprocessConfigOf gave a wrong result");
+        passed = false;
+    }
     for (std::size_t index{0}; index < fixture::cases.size(); ++index) {
         passed = checkCase(index, log) && passed;
     }

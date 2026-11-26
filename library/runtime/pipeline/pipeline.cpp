@@ -32,10 +32,8 @@
 namespace {
 using Clock = std::chrono::steady_clock;
 
-// What the model is: five classes, 8400 anchors for a 640 input, boxes divided by the input size
-// (the INT8 Ultralytics export). A model that differs is refused by the first postprocess.
-constexpr std::size_t modelClassCount{5};
-constexpr std::size_t modelAnchorCount{8400};
+// The input size, the class count and the anchor count come from the model. Its boxes are divided
+// by the input size (the INT8 Ultralytics export).
 constexpr int rgbChannels{3};
 // The postprocess keeps low confidence boxes for the tracker. The violation rule filters its own.
 constexpr float detectionConfidence{0.1F};
@@ -179,11 +177,15 @@ struct Logic {
     ViolationRule rule;
 };
 
-std::optional<Logic> makeLogic(const AppOptions& options, const Logger& log) {
-    PostprocessConfig post;
-    post.classCount = modelClassCount;
-    post.anchorCount = modelAnchorCount;
-    post.modelSize = defaultModelSize;
+std::optional<Logic> makeLogic(const AppOptions& options, const NpuInfer& npu, const Logger& log) {
+    std::optional<PostprocessConfig> shape{postprocessConfigOf(npu.inputSide(), npu.outputDims(0))};
+    if (!shape) {
+        log.error("the model output is not a YOLOv8 head for input ", npu.inputSide());
+        return std::nullopt;
+    }
+    log.info("model: input ", shape->modelSize, ", ", shape->classCount, " classes, ",
+             shape->anchorCount, " anchors");
+    PostprocessConfig post{*shape};
     post.normalizedBoxes = true;
     post.confThreshold = detectionConfidence;
     ViolationConfig ruleConfig;
@@ -219,7 +221,7 @@ std::optional<Capture> makeCapture(const AppOptions& options, NpuInfer& npu, con
     const CameraFormat& format{camera->format()};
     std::optional<RgaLetterbox> letterbox{RgaLetterbox::create(
         LetterboxConfig{ImageSize{format.width, format.height}, format.bytesPerLine,
-                        defaultModelSize, options.rotation, format.fullRange},
+                        npu.inputSide(), options.rotation, format.fullRange},
         log)};
     std::optional<std::vector<RgaImage>> images{importCameraBuffers(*camera, log)};
     if (!letterbox || !images) {
@@ -278,14 +280,14 @@ std::optional<Parts> makeParts(const AppOptions& options, const Logger& log) {
     if (!npu) {
         return std::nullopt;
     }
-    constexpr auto inputSide{static_cast<std::size_t>(defaultModelSize)};
+    const auto inputSide{static_cast<std::size_t>(npu->inputSide())};
     if (npu->inputBytes() != inputSide * inputSide * rgbChannels) {
         log.error("the model input has ", npu->inputBytes(), " bytes, expected ",
-                  inputSide * inputSide * rgbChannels, " (640 x 640 RGB)");
+                  inputSide * inputSide * rgbChannels, " (", inputSide, " x ", inputSide, " RGB)");
         return std::nullopt;
     }
     std::optional<Capture> capture{makeCapture(options, *npu, log)};
-    std::optional<Logic> logic{makeLogic(options, log)};
+    std::optional<Logic> logic{makeLogic(options, *npu, log)};
     if (!capture || !logic) {
         return std::nullopt;
     }

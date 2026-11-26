@@ -47,17 +47,14 @@ private:
     Logger log;
 };
 
-/** @brief Side of the model input in pixels (rk3588_common.model_io.IMGSZ). */
-constexpr int defaultModelSize{640};
-
 /** @brief What RgaLetterbox converts. */
 struct LetterboxConfig {
     /** Size of the NV12 camera frame in pixels. */
     ImageSize source{};
     /** Bytes per line of the NV12 frame (Camera::format().bytesPerLine). */
     int sourceStride{0};
-    /** Side of the square RGB output in pixels, the model input size. */
-    int targetSize{defaultModelSize};
+    /** Side of the square RGB output in pixels, the model input size (NpuInfer::inputSide()). */
+    int targetSize{0};
     /** Rotation of the camera image. */
     Rotation rotation{Rotation::None};
     /** Whether the YUV values use the full range 0 to 255 (CameraFormat::fullRange). The

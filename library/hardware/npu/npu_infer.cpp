@@ -32,6 +32,10 @@ struct NpuState {
     rknn_context context{0};
     bool loaded{false};
     rknn_tensor_attr inputAttr{};
+    // Side of the square input in pixels, read from the model in create().
+    int inputSide{0};
+    // The shape of every output, as the model declares it.
+    std::vector<std::vector<std::uint32_t>> outputDims;
     // Owned: released by the destructor.
     std::vector<rknn_tensor_mem*> inputs;
     std::vector<std::vector<float>> outputs;
@@ -78,6 +82,23 @@ std::optional<std::vector<char>> readFile(const char* path) {
     return content;
 }
 
+// The side of a square 3 channel image input, or 0 for any other input shape.
+int squareInputSide(const rknn_tensor_attr& attr) noexcept {
+    constexpr std::uint32_t imageDims{4};
+    constexpr std::uint32_t rgbChannels{3};
+    if (attr.n_dims != imageDims) {
+        return 0;
+    }
+    const bool nhwc{attr.fmt == RKNN_TENSOR_NHWC};
+    const std::uint32_t channels{nhwc ? attr.dims[3] : attr.dims[1]};
+    const std::uint32_t height{nhwc ? attr.dims[1] : attr.dims[2]};
+    const std::uint32_t width{nhwc ? attr.dims[2] : attr.dims[3]};
+    if (channels != rgbChannels || height != width || height == 0) {
+        return 0;
+    }
+    return static_cast<int>(height);
+}
+
 // Queries the input attribute and every output attribute, then sizes the output buffers and
 // fills the output requests.
 bool describeModel(NpuState& state) {
@@ -99,13 +120,19 @@ bool describeModel(NpuState& state) {
         state.log.error("rknn_query(INPUT_ATTR) ret=", status);
         return false;
     }
-    state.log.info("NPU input: size=", state.inputAttr.size,
+    state.inputSide = squareInputSide(state.inputAttr);
+    if (state.inputSide == 0) {
+        state.log.error("the model input is not a square 3 channel image");
+        return false;
+    }
+    state.log.info("NPU input: side=", state.inputSide, " size=", state.inputAttr.size,
                    " size_with_stride=", state.inputAttr.size_with_stride);
     // The data is handed over as uint8 NHWC, the layout of the RGB output of RgaLetterbox.
     state.inputAttr.type = RKNN_TENSOR_UINT8;
     state.inputAttr.fmt = RKNN_TENSOR_NHWC;
 
     state.outputs.resize(counts.n_output);
+    state.outputDims.resize(counts.n_output);
     state.outputRequests.resize(counts.n_output);
     for (std::uint32_t index{0}; index < counts.n_output; ++index) {
         rknn_tensor_attr attr{};
@@ -115,6 +142,7 @@ bool describeModel(NpuState& state) {
             state.log.error("rknn_query(OUTPUT_ATTR ", index, ") ret=", status);
             return false;
         }
+        state.outputDims.at(index).assign(attr.dims, attr.dims + attr.n_dims);
         std::vector<float>& values{state.outputs.at(index)};
         values.assign(attr.n_elems, 0.0F);
         rknn_output& request{state.outputRequests.at(index)};
@@ -165,12 +193,20 @@ std::size_t NpuInfer::inputBytes() const noexcept {
     return state->inputAttr.size_with_stride;
 }
 
+int NpuInfer::inputSide() const noexcept {
+    return state->inputSide;
+}
+
 std::size_t NpuInfer::outputCount() const noexcept {
     return state->outputs.size();
 }
 
 const std::vector<float>& NpuInfer::output(std::size_t index) const {
     return state->outputs.at(index);
+}
+
+const std::vector<std::uint32_t>& NpuInfer::outputDims(std::size_t index) const {
+    return state->outputDims.at(index);
 }
 
 std::optional<InputId> NpuInfer::attachInput(DmaBuf& buffer) {

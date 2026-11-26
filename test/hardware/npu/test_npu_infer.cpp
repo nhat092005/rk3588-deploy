@@ -1,5 +1,5 @@
 // NpuInfer on the board. Usage: test_npu_infer model.rknn
-//   model.rknn: a model with a 1x640x640x3 uint8 input.
+//   model.rknn: any model with a square 3 channel uint8 input (640 or 960).
 // Checks: a missing file and a too small buffer are rejected, an unknown input id fails, two runs
 // on the same input give identical finite outputs, and logs the time of 100 runs.
 // Exit code 0 when every check passes, 1 otherwise, 2 on bad arguments.
@@ -19,7 +19,7 @@
 #include "npu_infer.h"
 
 namespace {
-constexpr std::size_t modelInputBytes{640UL * 640UL * 3UL};
+constexpr std::size_t rgbChannels{3};
 constexpr unsigned int fixedSeed{42};
 constexpr unsigned int byteMask{0xFF};
 constexpr int timedRuns{100};
@@ -106,8 +106,10 @@ int main(int argc, char** argv) {
     std::optional<NpuInfer> model{NpuInfer::create(NpuConfig{modelPath}, log)};
     bool passed{false};
     if (model) {
-        const bool sized{
-            expect(model->inputBytes() == modelInputBytes, "input is 640x640x3 bytes", log)};
+        const auto side{static_cast<std::size_t>(model->inputSide())};
+        log.info("input side ", side);
+        const bool sized{expect(side > 0 && model->inputBytes() == side * side * rgbChannels,
+                                "input bytes are side x side x 3", log)};
         const bool rejected{checkRejects(modelPath, *model, log)};
         const bool ran{checkRuns(*model, log)};
         passed = sized && rejected && ran;

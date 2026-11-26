@@ -34,7 +34,8 @@ struct NpuState;
  *        rknn_inputs_set), the outputs go to buffers that are allocated once. Move-only. Nothing
  *        is allocated in run().
  *
- * The model has one input, uint8 NHWC, and any number of outputs, returned as float. The
+ * The model has one input, a square 3 channel image (uint8 NHWC is what is handed over), and any
+ * number of outputs, returned as float. The
  * destructor releases the attached inputs first and then the model.
  */
 class NpuInfer {
@@ -44,7 +45,8 @@ public:
      * @param config Model path.
      * @param log Logger that the object keeps for the rest of its life.
      * @return The loaded model, or empty on failure (unreadable file, rknn_init error, a model
-     *         that does not have exactly one input), which is logged once with the cause.
+     *         that does not have exactly one square 3 channel image input), which is logged once
+     * with the cause.
      */
     static std::optional<NpuInfer> create(const NpuConfig& config, const Logger& log);
 
@@ -57,8 +59,18 @@ public:
     /** @brief Bytes the input tensor needs. A DmaBuf for attachInput() must be at least this. */
     std::size_t inputBytes() const noexcept;
 
+    /** @brief Side of the square model input in pixels (640 or 960 for a YOLOv8 export). */
+    int inputSide() const noexcept;
+
     /** @brief Number of output tensors of the model, at least 1. */
     std::size_t outputCount() const noexcept;
+
+    /**
+     * @brief The shape the model declares for one output tensor.
+     * @param index Output index, below outputCount().
+     * @return The dimensions, for example {1, 10, 8400} for 6 classes at 640.
+     */
+    const std::vector<std::uint32_t>& outputDims(std::size_t index) const;
 
     /**
      * @brief The float values of one output tensor after the last successful run().
