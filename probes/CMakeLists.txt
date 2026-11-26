@@ -68,6 +68,13 @@ add_probe(
 )
 add_probe(
     device
+    probe_rga_shift
+    LIBS
+    dmabuf_lib
+    rga_lib
+)
+add_probe(
+    device
     probe_camera
     LIBS
     camera_lib
