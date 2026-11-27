@@ -28,6 +28,7 @@ if(CMAKE_CROSSCOMPILING)
                tracker_lib
                postproc_lib
         PRIVATE camera_lib
+                file_source_lib
                 npu_lib
                 stats_lib
                 jpeg_lib
