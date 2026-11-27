@@ -107,6 +107,7 @@ add_probe(
     jpeg_lib
     process_lib
 )
+add_probe(stage probe_file_source LIBS file_source_lib)
 add_probe(
     stage
     probe_h265
