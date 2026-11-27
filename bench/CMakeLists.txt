@@ -46,6 +46,7 @@ endfunction()
 add_subdirectory(common)
 add_subdirectory(stage/preprocess)
 add_subdirectory(stage/draw)
+add_subdirectory(stage/jpeg)
 
 add_bench(
     stage
@@ -80,6 +81,19 @@ add_bench(
     bench_json_lib
     bench_platform_lib
     video_lib
+    mpp_lib
+    dmabuf_lib
+)
+
+add_bench(
+    stage
+    bench_jpeg
+    LIBS
+    bench_timing_lib
+    bench_json_lib
+    bench_platform_lib
+    bench_jpeg_lib
+    jpeg_lib
     mpp_lib
     dmabuf_lib
 )

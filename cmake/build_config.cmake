@@ -11,6 +11,7 @@ set(BUILD_APP ON) # rk3588_deploy
 set(BUILD_BENCH_PREPROCESS ON) # stage 1 preprocess: RGA against OpenCV
 set(BUILD_BENCH_DRAW ON) # stage 2 draw the boxes: RGA2 against OpenCV
 set(BUILD_BENCH_ENCODE ON) # stage 3 H.265 encode: MPP (hardware side)
+set(BUILD_BENCH_JPEG ON) # stage 4 JPEG encode: MPP against libjpeg-turbo
 
 # ---- test/base ----
 set(BUILD_TEST_CONFIG_JSON ON)
