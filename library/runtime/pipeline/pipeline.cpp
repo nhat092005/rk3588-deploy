@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <thread>
 #include <utility>
@@ -16,6 +17,7 @@
 #include "dmabuf.h"
 #include "evidence_worker.h"
 #include "frame_data.h"
+#include "frame_source.h"
 #include "mailbox.h"
 #include "npu_infer.h"
 #include "output_branch.h"
@@ -93,7 +95,7 @@ struct Counters {
 
 // The pieces made by create(), moved into the state.
 struct Parts {
-    Camera camera;
+    std::unique_ptr<FrameSource> camera;
     RgaLetterbox letterbox;
     std::vector<RgaImage> cameraImages;
     std::vector<Input> inputs;
@@ -132,7 +134,7 @@ struct PipelineState {
 
     AppOptions options;
     Logger log;
-    Camera camera;
+    std::unique_ptr<FrameSource> camera;
     RgaLetterbox letterbox;
     std::vector<RgaImage> cameraImages;
     std::vector<Input> inputs;
@@ -157,7 +159,8 @@ struct PipelineState {
 };
 
 namespace {
-std::optional<std::vector<RgaImage>> importCameraBuffers(const Camera& camera, const Logger& log) {
+std::optional<std::vector<RgaImage>> importCameraBuffers(const FrameSource& camera,
+                                                         const Logger& log) {
     std::vector<RgaImage> images;
     images.reserve(camera.bufferCount());
     for (std::size_t index{0}; index < camera.bufferCount(); ++index) {
@@ -220,7 +223,7 @@ std::optional<Logic> makeLogic(const AppOptions& options, const NpuInfer& npu, c
 
 // The camera and the RGA side: the frame buffers, the letterbox and the model input buffers.
 struct Capture {
-    Camera camera;
+    std::unique_ptr<FrameSource> camera;
     RgaLetterbox letterbox;
     std::vector<RgaImage> cameraImages;
     std::vector<Input> inputs;
@@ -235,12 +238,13 @@ std::optional<Capture> makeCapture(const AppOptions& options, NpuInfer& npu, con
     if (!camera) {
         return std::nullopt;
     }
-    const CameraFormat& format{camera->format()};
+    std::unique_ptr<FrameSource> source{std::make_unique<Camera>(std::move(*camera))};
+    const CameraFormat& format{source->format()};
     std::optional<RgaLetterbox> letterbox{RgaLetterbox::create(
         LetterboxConfig{ImageSize{format.width, format.height}, format.bytesPerLine,
                         npu.inputSide(), options.rotation, format.fullRange},
         log)};
-    std::optional<std::vector<RgaImage>> images{importCameraBuffers(*camera, log)};
+    std::optional<std::vector<RgaImage>> images{importCameraBuffers(*source, log)};
     if (!letterbox || !images) {
         return std::nullopt;
     }
@@ -261,8 +265,7 @@ std::optional<Capture> makeCapture(const AppOptions& options, NpuInfer& npu, con
         }
         inputs.push_back(Input{std::move(*buffer), std::move(*image), *inputId});
     }
-    return Capture{std::move(*camera), std::move(*letterbox), std::move(*images),
-                   std::move(inputs)};
+    return Capture{std::move(source), std::move(*letterbox), std::move(*images), std::move(inputs)};
 }
 
 // The stream is only a view of the video: when it cannot be set up the application goes on
@@ -312,7 +315,7 @@ std::optional<Parts> makeParts(const AppOptions& options, const Logger& log) {
     if (!capture) {
         return std::nullopt;
     }
-    const CameraFormat& format{capture->camera.format()};
+    const CameraFormat& format{capture->camera->format()};
     std::optional<RecordWorker> record;
     if (options.archive) {
         record = RecordWorker::create(options, log);
@@ -390,7 +393,7 @@ Pair readStats(StageStats& stats) {
 }
 
 bool giveBack(PipelineState& state, std::size_t cameraIndex) {
-    return state.camera.queue(cameraIndex);
+    return state.camera->queue(cameraIndex);
 }
 
 // Ends the run after a failure: the camera thread stops, the mailboxes refuse and wake the others.
@@ -409,22 +412,26 @@ struct CameraStats {
 };
 
 // Waits for a frame and takes it out of the camera. Ready: `frame` is set. Stopped: the signal
-// arrived. Failed otherwise.
-enum class Fetch : std::uint8_t { Ready, Stopped, Failed };
+// arrived. Ended: the source has no more frames. Failed otherwise.
+enum class Fetch : std::uint8_t { Ready, Stopped, Ended, Failed };
 
 Fetch fetchFrame(PipelineState& state, const StopSignal& stop,
                  std::optional<std::int64_t>& lastSequence, Frame& frame) {
     while (true) {
-        const WaitStatus waited{state.camera.waitFrame(stop)};
+        const WaitStatus waited{state.camera->waitFrame(stop)};
         if (waited == WaitStatus::Stopped) {
             state.log.warn("stopped by signal");
             return Fetch::Stopped;
+        }
+        if (waited == WaitStatus::End) {
+            state.log.info("the source has no more frames");
+            return Fetch::Ended;
         }
         if (waited != WaitStatus::Ready) {
             state.log.error("no frame from the camera");
             return Fetch::Failed;
         }
-        const Dequeued dequeued{state.camera.dequeue()};
+        const Dequeued dequeued{state.camera->dequeue()};
         if (dequeued.status == DequeueStatus::Failed) {
             return Fetch::Failed;
         }
@@ -903,5 +910,5 @@ bool Pipeline::run(const StopSignal& stop) {
                       streamed.failed.load() ? "GIVEN UP" : "ok", ", queue overflows ",
                       queue.overflowCount(), ", packets dropped ", queue.droppedCount());
     }
-    return pipe.camera.close() && !pipe.failed.load();
+    return pipe.camera->close() && !pipe.failed.load();
 }
