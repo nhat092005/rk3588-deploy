@@ -23,20 +23,30 @@ constexpr std::uint8_t brightV{160};
 constexpr std::uint8_t darkU{160};
 constexpr std::uint8_t darkV{100};
 constexpr int probeFraction{4}; // probe points at a quarter and three quarters of each side
+// A decoder pads the height of a 360 line frame to 368: the chroma plane starts after 368 lines.
+constexpr int paddedHeight{368};
 
-// Left half bright, right half dark, each with its own chroma pair.
-bool paintSource(DmaBuf& source) {
+// A band of 8 lines where the two halves swap. A chroma plane read from the wrong line puts the
+// band 8 lines away, so a probe in the band catches a wrong vertical stride.
+constexpr int bandTop{96};
+constexpr int bandLines{8};
+constexpr int bandProbe{bandTop + bandLines / 2};
+
+// Left half bright, right half dark, each with its own chroma pair (swapped in the band), in a
+// buffer of `rows` luma lines.
+bool paintSource(DmaBuf& source, int rows) {
     auto* bytes{static_cast<std::uint8_t*>(source.data())};
-    const std::size_t lumaSize{static_cast<std::size_t>(frameWidth) * frameHeight};
+    const std::size_t lumaSize{static_cast<std::size_t>(frameWidth) * rows};
+    const auto inBand{[](int row) { return row >= bandTop && row < bandTop + bandLines; }};
     for (int row{0}; row < frameHeight; ++row) {
         for (int column{0}; column < frameWidth; ++column) {
             bytes[(static_cast<std::size_t>(row) * frameWidth) + static_cast<std::size_t>(column)] =
-                column < frameWidth / 2 ? brightLuma : darkLuma;
+                (column < frameWidth / 2) != inBand(row) ? brightLuma : darkLuma;
         }
     }
     for (int row{0}; row < frameHeight / 2; ++row) {
         for (int pair{0}; pair < frameWidth / 2; ++pair) {
-            const bool left{pair < frameWidth / 4};
+            const bool left{(pair < frameWidth / 4) != inBand(row * 2)};
             const std::size_t offset{lumaSize + (static_cast<std::size_t>(row) * frameWidth) +
                                      (static_cast<std::size_t>(pair) * 2)};
             bytes[offset] = left ? brightU : darkU;
@@ -91,10 +101,13 @@ bool matches(const DmaBuf& copy, const CopyLayout& layout, const Pixel& pixel,
 constexpr Expected brightPixel{brightLuma, brightU, brightV};
 constexpr Expected darkPixel{darkLuma, darkU, darkV};
 
-// One rotation: the size of the copy and where the bright half went.
-bool checkRotation(Rotation rotation, const char* name, const DmaBuf& source, const Logger& log) {
+// One rotation: the size of the copy and where the bright half went. `rows` is the vertical stride
+// of the source buffer, 0 when it is as high as the image.
+bool checkRotation(Rotation rotation, const char* name, const DmaBuf& source, int rows,
+                   const Logger& log) {
     const std::optional<RgaSnapshot> snapshot{RgaSnapshot::create(
-        SnapshotConfig{ImageSize{frameWidth, frameHeight}, frameWidth, rotation}, log)};
+        SnapshotConfig{ImageSize{frameWidth, frameHeight}, frameWidth, rotation, ImageSize{}, rows},
+        log)};
     if (!snapshot) {
         return false;
     }
@@ -128,6 +141,13 @@ bool checkRotation(Rotation rotation, const char* name, const DmaBuf& source, co
         const Expected& right{rotation == Rotation::None ? darkPixel : brightPixel};
         passed = matches(*copy, layout, Pixel{rowA, columnA}, left, name, log) && passed;
         passed = matches(*copy, layout, Pixel{rowB, columnB}, right, name, log) && passed;
+        if (rotation == Rotation::None) {
+            // In the band the halves are swapped.
+            passed =
+                matches(*copy, layout, Pixel{bandProbe, columnA}, darkPixel, name, log) && passed;
+            passed =
+                matches(*copy, layout, Pixel{bandProbe, columnB}, brightPixel, name, log) && passed;
+        }
     }
     log.info("snapshot rotation ", name, passed ? " ok" : " FAIL");
     return passed;
@@ -139,7 +159,11 @@ bool checkBadConfig(const Logger& log) {
         log)};
     const bool shortStride{!RgaSnapshot::create(
         SnapshotConfig{ImageSize{frameWidth, frameHeight}, frameWidth - 2, Rotation::None}, log)};
-    return oddWidth && shortStride;
+    const bool shortRows{
+        !RgaSnapshot::create(SnapshotConfig{ImageSize{frameWidth, frameHeight}, frameWidth,
+                                            Rotation::None, ImageSize{}, frameHeight - 2},
+                             log)};
+    return oddWidth && shortStride && shortRows;
 }
 } // namespace
 
@@ -148,7 +172,11 @@ int main() {
     std::optional<DmaBuf> source{DmaBuf::allocate(
         DmaBufConfig{defaultHeap, static_cast<std::size_t>(frameWidth) * frameHeight * 3 / 2},
         log)};
-    if (!source || !paintSource(*source)) {
+    std::optional<DmaBuf> padded{DmaBuf::allocate(
+        DmaBufConfig{defaultHeap, static_cast<std::size_t>(frameWidth) * paddedHeight * 3 / 2},
+        log)};
+    if (!source || !padded || !paintSource(*source, frameHeight) ||
+        !paintSource(*padded, paddedHeight)) {
         log.error("FAIL");
         return EXIT_FAILURE;
     }
@@ -160,8 +188,10 @@ int main() {
     }};
     bool passed{checkBadConfig(log)};
     for (const auto& item : cases) {
-        passed = checkRotation(item.first, item.second, *source, log) && passed;
+        passed = checkRotation(item.first, item.second, *source, 0, log) && passed;
     }
+    passed =
+        checkRotation(Rotation::None, "0, padded height", *padded, paddedHeight, log) && passed;
     if (passed) {
         log.info("PASS");
     } else {

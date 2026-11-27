@@ -242,7 +242,8 @@ std::optional<Capture> makeCapture(const AppOptions& options, NpuInfer& npu, con
     const CameraFormat& format{source->format()};
     std::optional<RgaLetterbox> letterbox{RgaLetterbox::create(
         LetterboxConfig{ImageSize{format.width, format.height}, format.bytesPerLine,
-                        npu.inputSide(), options.rotation, format.fullRange},
+                        npu.inputSide(), options.rotation, format.fullRange, format.verticalStride,
+                        format.matrix},
         log)};
     std::optional<std::vector<RgaImage>> images{importCameraBuffers(*source, log)};
     if (!letterbox || !images) {
