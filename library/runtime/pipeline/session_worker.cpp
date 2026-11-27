@@ -2,6 +2,8 @@
 
 #include <chrono>
 #include <ctime>
+#include <filesystem>
+#include <string>
 #include <utility>
 
 #include "mp4_writer.h"
@@ -36,10 +38,14 @@ std::optional<SessionWorker> SessionWorker::create(const AppOptions& options, co
         static_cast<std::size_t>(static_cast<double>(bytesPerSecond) * ringSeconds) * ringMargin};
     std::unique_ptr<PacketQueue> queue{
         PacketQueue::create(ringBytes, maxQueuedPackets, defaultVideoCapacity)};
+    // The demo names the file after the video; the camera names it by the clock.
+    const std::string videoName{options.inputSource == InputSource::File
+                                    ? std::filesystem::path{options.inputPath}.stem().string()
+                                    : std::string{}};
     std::optional<SessionWriter> writer{SessionWriter::create(
         SessionConfig{options.sessionDir,
                       static_cast<std::uint64_t>(options.sessionMinFreeGb * bytesPerGigabyte),
-                      defaultFileMode, nullptr, videoOutputOf(options.fileFormat)},
+                      defaultFileMode, nullptr, videoOutputOf(options.fileFormat), videoName},
         log)};
     if (!queue || !writer) {
         return std::nullopt;
@@ -86,4 +92,8 @@ const SessionCounts& SessionWorker::counts() const noexcept {
 
 std::string SessionWorker::path() const {
     return state->writer.path();
+}
+
+bool SessionWorker::publish() {
+    return state->writer.publish();
 }

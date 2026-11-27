@@ -36,6 +36,10 @@ struct SessionConfig {
     FreeSpaceFunction freeSpace{nullptr};
     /** The format of the file: `.h265` as the encoder wrote it (the default), or another. */
     VideoOutput output{rawVideoOutput};
+    /** Empty: the file is named by the clock, in a folder of the day (see SessionWriter). A name:
+     *  the file is `<root>/<fileName><suffix>`, written as `<fileName><suffix>.part` until
+     *  publish() renames it, and a root that is missing is created. */
+    std::string_view fileName{};
 };
 
 /**
@@ -43,6 +47,11 @@ struct SessionConfig {
  *        `<root>/<YYYY-MM-DD>/<HHMMSS>.h265` (or `.mp4`, see SessionConfig::output), named by the
  *        wall-clock time at which the first key frame arrives (a second run in the same second gets
  *        `_2`, `_3` and so on).
+ *
+ * With SessionConfig::fileName the file is `<root>/<fileName><suffix>` instead, with no folder of
+ * the day. It is written under the name `<fileName><suffix>.part` and publish() renames it to the
+ * final name once the video is complete, replacing the file of an earlier run: a run that stops
+ * half way leaves only the `.part`.
  *
  * The file has its final name from the start and is flushed with fsync at every key frame (so a
  * power cut loses about a second or two) and when the run ends. A raw H.265 stream and a
@@ -76,6 +85,15 @@ public:
 
     /** @brief Flushes and closes the file at the end of the run. */
     void finish();
+
+    /**
+     * @brief Gives a finished file with a name (SessionConfig::fileName) its final name. Call it
+     *        after finish(), when the video is complete.
+     * @return true when the file now has its final name. false when nothing was written, the
+     *         writer is not named or was stopped by a failure (the `.part` stays), or the rename
+     *         failed, which is logged.
+     */
+    [[nodiscard]] bool publish();
 
     /** @brief Whether the writing stopped (no room, or a failure). It does not start again. */
     bool stopped() const noexcept {
@@ -117,7 +135,10 @@ private:
     void stop(const std::string& why);
     void close();
 
+    bool openNamed();
+
     std::string root;
+    std::string name;
     std::uint64_t minFreeBytes;
     unsigned fileMode;
     FreeSpaceFunction freeSpace;
@@ -130,6 +151,7 @@ private:
     std::size_t gaps{0};
     std::size_t skipped{0};
     bool isStopped{false};
+    bool published{false};
     std::string reason;
 };
 

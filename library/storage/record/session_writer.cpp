@@ -18,6 +18,7 @@ namespace fs = std::filesystem;
 
 constexpr std::size_t timeBufferBytes{64};
 constexpr int maxNameAttempts{100};
+constexpr std::string_view partSuffix{".part"};
 constexpr unsigned readBits{0444U};
 constexpr unsigned executeShift{2U};
 constexpr double bytesPerGb{1e9};
@@ -49,12 +50,21 @@ void syncDirectory(const std::string& path, const Logger& log) noexcept {
 } // namespace
 
 SessionWriter::SessionWriter(const SessionConfig& config, Logger logger)
-    : root{config.root}, minFreeBytes{config.minFreeBytes}, fileMode{config.fileMode},
+    : root{config.root}, name{config.fileName}, minFreeBytes{config.minFreeBytes},
+      fileMode{config.fileMode},
       freeSpace{config.freeSpace != nullptr ? config.freeSpace : &volumeFreeBytes},
       output{config.output}, log{logger} {}
 
 std::optional<SessionWriter> SessionWriter::create(const SessionConfig& config, const Logger& log) {
     const std::string root{config.root};
+    if (!config.fileName.empty()) {
+        std::error_code created;
+        fs::create_directories(root, created);
+        if (created) {
+            log.error("session root ", root, ": ", created.message());
+            return std::nullopt;
+        }
+    }
     struct stat info {};
     if (::stat(root.c_str(), &info) != 0) {
         log.error("session root ", root, ": ", lastError());
@@ -94,8 +104,40 @@ bool SessionWriter::hasRoom() const {
     return !free || *free >= minFreeBytes;
 }
 
+// Opens `<root>/<name><suffix>.part`, which replaces the leftover of an earlier run.
+bool SessionWriter::openNamed() {
+    std::string candidate{root};
+    candidate += '/';
+    candidate += name;
+    candidate += output.suffix;
+    candidate += partSuffix;
+    file = FileDescriptor{
+        ::open(candidate.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, fileMode), log};
+    if (!file.valid()) {
+        log.error("open ", candidate, ": ", lastError());
+        return false;
+    }
+    if (::fchmod(file.get(), fileMode) != 0) {
+        log.warn("fchmod ", candidate, ": ", lastError());
+    }
+    video = output.open(file.get(), log);
+    if (!video) {
+        const std::error_code ignored{file.close()};
+        (void)ignored;
+        (void)::unlink(candidate.c_str());
+        return false;
+    }
+    filePath = candidate;
+    syncDirectory(root, log);
+    log.info("session video ", filePath);
+    return true;
+}
+
 // Opens the file under its final name: the first name that is free.
 bool SessionWriter::open(std::time_t wallNow) {
+    if (!name.empty()) {
+        return openNamed();
+    }
     const unsigned dirMode{directoryMode(fileMode)};
     std::string dayPath{root};
     dayPath += '/';
@@ -231,4 +273,20 @@ bool SessionWriter::consume(const QueuedPacket& packet, std::time_t wallNow) {
 
 void SessionWriter::finish() {
     close();
+}
+
+bool SessionWriter::publish() {
+    if (name.empty() || isStopped || published || filePath.empty() || file.valid()) {
+        return false;
+    }
+    const std::string final{filePath.substr(0, filePath.size() - partSuffix.size())};
+    if (::rename(filePath.c_str(), final.c_str()) != 0) {
+        log.error("rename ", filePath, " to ", final, ": ", lastError());
+        return false;
+    }
+    syncDirectory(root, log);
+    filePath = final;
+    published = true;
+    log.info("session video ", filePath, " is complete");
+    return true;
 }
