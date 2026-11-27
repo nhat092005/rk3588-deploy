@@ -9,12 +9,11 @@
 #include <vector>
 
 #include "dmabuf.h"
+#include "frame_source.h"
 #include "handles.h"
 #include "logger.h"
 
-// The header shows project types only. Every V4L2 type stays in camera.cpp, which checks that
-// maxPlanes equals VIDEO_MAX_PLANES.
-constexpr std::size_t maxPlanes{8};
+// The header shows project types only. Every V4L2 type stays in camera.cpp.
 /** @brief Default number of frame buffers, and the most a CameraConfig may ask for. */
 constexpr std::size_t defaultBufferCount{4};
 constexpr std::size_t maxBufferCount{16};
@@ -53,51 +52,17 @@ struct CameraConfig {
     std::size_t buffers{defaultBufferCount};
 };
 
-/** @brief The frame format that the driver accepted. */
-struct CameraFormat {
-    /** Width in pixels. */
-    int width{0};
-    /** Height in pixels. */
-    int height{0};
-    /** Bytes from the start of one line to the next, in plane 0. */
-    int bytesPerLine{0};
-    /** Whether the driver says that the YUV values use the full range 0 to 255 (V4L2
-     *  quantization). false means the limited range, 16 to 235 for luma. */
-    bool fullRange{false};
-};
-
-/** @brief One dequeued frame. `bytesUsed` holds the used bytes of each plane. */
-struct Frame {
-    std::size_t index{0};
-    std::int64_t sequence{0};
-    /** Time the frame was captured, in seconds of CLOCK_MONOTONIC (the driver's timestamp), 0 when
-     *  the driver gives no monotonic timestamp. */
-    double captureSeconds{0.0};
-    bool flaggedError{false};
-    std::array<std::size_t, maxPlanes> bytesUsed{};
-};
-
-/** @brief Result of Camera::waitFrame. */
-enum class WaitStatus : std::uint8_t { Ready, Timeout, Stopped, Failed };
-
-/** @brief Result of Camera::dequeue. */
-enum class DequeueStatus : std::uint8_t { Frame, NotReady, Failed };
-
-/** @brief A dequeue result. `frame` is valid only when `status` is Frame. */
-struct Dequeued {
-    DequeueStatus status{DequeueStatus::Failed};
-    Frame frame{};
-};
-
 /**
  * @brief One V4L2 capture node, streaming NV12 into DMA-BUFs of a dma-heap (V4L2_MEMORY_DMABUF).
  *        The buffers are DmaBuf objects, so a frame can go to RGA, RKNN or MPP by descriptor
  *        without a copy. All storage is fixed size: nothing is allocated per frame. Move-only.
  *        The ISP crop is a state of the node that outlives the process, so the Camera sets it to
  *        the aspect ratio of the requested size and puts the original one back in close() or the
- *        destructor.
+ *        destructor. It is a FrameSource that never ends. The class is final, so the close() that
+ *        the destructor calls is the one of Camera. The move constructor is for the optional that
+ *        open() returns: a Camera is moved into its owner once and then stays where it is.
  */
-class Camera {
+class Camera final : public FrameSource {
 public:
     /**
      * @brief Opens the node, crops the ISP, sets the format, allocates and queues the buffers and
@@ -117,15 +82,15 @@ public:
     Camera& operator=(Camera&&) noexcept = default;
 
     /** @brief Same as close(). A failure is logged. */
-    ~Camera();
+    ~Camera() override;
 
     /** @brief Width, height and line stride that the driver accepted. */
-    const CameraFormat& format() const noexcept {
+    const CameraFormat& format() const noexcept override {
         return acceptedFormat;
     }
 
     /** @brief Number of frame buffers in use: dequeue() returns an index below it. */
-    std::size_t bufferCount() const noexcept {
+    std::size_t bufferCount() const noexcept override {
         return buffersInUse;
     }
 
@@ -153,7 +118,7 @@ public:
      *         `stop` fired, which wins over Ready. Failed when poll() failed or reported an error
      *         on the node, and the failure is logged.
      */
-    [[nodiscard]] WaitStatus waitFrame(const StopSignal& stop) const noexcept;
+    [[nodiscard]] WaitStatus waitFrame(const StopSignal& stop) const noexcept override;
 
     /**
      * @brief Takes one filled buffer from the driver without blocking.
@@ -161,14 +126,14 @@ public:
      *         NotReady when the driver has no frame yet, which is not an error. Failed on a driver
      *         error, which is logged.
      */
-    [[nodiscard]] Dequeued dequeue() const noexcept;
+    [[nodiscard]] Dequeued dequeue() const noexcept override;
 
     /**
      * @brief Gives a buffer back to the driver.
      * @param index Buffer index of a dequeued Frame.
      * @return false when the driver refused it, which is logged.
      */
-    [[nodiscard]] bool queue(std::size_t index) const noexcept;
+    [[nodiscard]] bool queue(std::size_t index) const noexcept override;
 
     /**
      * @brief The DMA-BUF of one plane of one buffer, to hand to a device API.
@@ -178,7 +143,7 @@ public:
      *         access in DmaBuf::beginCpuAccess() and endCpuAccess(), and only while the frame is
      *         dequeued.
      */
-    const DmaBuf& planeBuffer(std::size_t index, std::size_t plane) const {
+    const DmaBuf& planeBuffer(std::size_t index, std::size_t plane) const override {
         return memories.at(index * planes + plane);
     }
 
@@ -198,7 +163,7 @@ public:
      *         others. A buffer that fails to unmap or close is logged by its DmaBuf and is not
      *         counted here.
      */
-    [[nodiscard]] bool close() noexcept;
+    [[nodiscard]] bool close() noexcept override;
 
 private:
     Camera(FileDescriptor videoDevice, Logger logger) noexcept
