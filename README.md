@@ -85,6 +85,31 @@ ffplay -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://<board>:8554
 - A viewer that joins sees the picture at the next key frame, at most 1 second.
 - Only the board may publish, anyone on the network may watch (`sh/stream/mediamtx.yml`, no password).
 
+## Demo from videos
+
+Runs the real pipeline on `.mp4` files instead of the camera.
+
+1. Put the videos (H.264 or H.265) in `deploy/resource/demo/` on the PC. Git ignores them, and `make sync-board` copies them to the board.
+2. In `resource/config/app_config.json` set:
+
+```json
+"input":   {"source": "file", "path": "resource/demo"},
+"encode":  {"file_format": "mp4"},
+"session": {"enabled": true, "output_dir": "/data/demo"}
+```
+
+3. Run `./rk3588_deploy`. Each video gives `/data/demo/<video name>.mp4`.
+
+| Rule | |
+|---|---|
+| Order | One `.mp4` at a time, by name. `input.path` may also be one file. A relative path starts at the folder that holds `bin/` |
+| Output | Written as `<name>.mp4.part`, renamed when the video is done. A rerun overwrites. Ctrl+C leaves only the `.part` |
+| Pace | Real time, as with the camera: frames the NPU cannot follow are dropped (about 13 fps out with `ppe6-960`, see `skipped` in the log) |
+| Failure | A bad video is skipped, the others run, exit code 1 at the end |
+| Not used | `camera.node`, `camera.width`, `camera.height`. Violations are off |
+| Required | `session.enabled` `true` |
+| Not supported | 10-bit, above 4K, size change inside a video, rotation flag of the file |
+
 ## Video files
 
 Two flags save the finished H.265 video. Both are off by default and can run together.
@@ -142,6 +167,7 @@ Usage is in each file header. Exit 0 and a last line `PASS` mean success.
 | `stage/probe_letterbox` | RGA letterbox, then `check_letterbox.py` |
 | `stage/probe_jpeg` | RGA copy and MPP JPEG, then `check_jpeg.py` |
 | `stage/probe_overlay` | RGA outlines and labels on a 4K frame |
+| `stage/probe_file_source` | `FileSource` on a video: frames, pace, held buffers, colour, end of file |
 | `stage/probe_h265` | H.265 of 4K frames: time, bitrate, free `lowHeap` |
 | `stage/probe_tracker` | `ByteTracker::update` time (run with `taskset -c 6`) |
 | `pipeline/probe_threads` | Thread layouts on real devices |

@@ -10,6 +10,9 @@ __pycache__/
 # RKNN
 resource/rknn/
 
+# Demo videos
+resource/demo/
+
 # Measurements
 measurements/*
 !measurements/README.md

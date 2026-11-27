@@ -11,7 +11,8 @@
 ## Rules
 
 - Order: defaults of the code, then the file, then the command line. The last one wins.
-- The file is read from the folder that holds `bin/`, whatever the current folder. A relative `model` is relative to that folder.
+- The file is read from the folder that holds `bin/`, whatever the current folder.
+- A relative `model` and a relative `input.path` of the file are relative to that folder. On the command line they are relative to the current folder.
 - A missing default file is fine, a broken one stops the app.
 - Every key is optional except `model`, which the file or `--model` must give.
 - `classes` is a list, not a group, and has no flag (see Classes below).
@@ -27,9 +28,11 @@
 |---|---|---|---|
 | `model` | `--model` | none | string, required |
 | `classes` | none | the 6 classes below | list of `{name, role}`, see Classes |
-| `camera.node` | `--node` | `/dev/video11` | string |
-| `camera.width` | `--width` | 3840 | number, even, 2 to 16384 |
-| `camera.height` | `--height` | 2160 | number, even, 2 to 16384 |
+| `input.source` | `--input-source` | `camera` | `camera` or `file`, see Demo from videos |
+| `input.path` | `--input-path` | none | string, a `.mp4` file or a folder of them, required when `input.source` is `file` |
+| `camera.node` | `--node` | `/dev/video11` | string, not used with `input.source` `file` |
+| `camera.width` | `--width` | 3840 | number, even, 2 to 16384, not used with `input.source` `file` |
+| `camera.height` | `--height` | 2160 | number, even, 2 to 16384, not used with `input.source` `file` |
 | `camera.rotation` | `--rotation` | 0 | 0, 90, 180 or 270 degrees clockwise |
 | `encode.video_kbps` | `--video-kbps` | 20000 | number, 1 to 200000 |
 | `encode.jpeg_quality` | `--jpeg-quality` | 90 | number, 1 to 99 |
@@ -167,3 +170,7 @@ Measured on the board (300 frames, archive and session on):
 - The bitrate of the 1080 stream is 5000 kbps with the default `encode.video_kbps`, a quarter of the 4K one. The archive limits (`archive.max_storage_gb`) then hold about four times the time; this follows from the bitrate and was not measured on a scene with people.
 
 The live view (`stream.*`) is in `deploy/README.md`.
+
+## Demo from videos
+
+`input.source` `file` runs `.mp4` videos instead of the camera. How: `../../README.md`, section Demo from videos.
