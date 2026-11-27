@@ -97,3 +97,14 @@ add_bench(
     mpp_lib
     dmabuf_lib
 )
+
+add_bench(
+    stage
+    bench_infer
+    LIBS
+    bench_timing_lib
+    bench_json_lib
+    bench_platform_lib
+    npu_lib
+    dmabuf_lib
+)
