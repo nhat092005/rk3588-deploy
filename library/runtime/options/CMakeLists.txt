@@ -1,3 +1,8 @@
+# The video files of the demo: plain C++, builds on the PC.
+add_library(input_videos_lib STATIC input_videos.cpp)
+target_include_directories(input_videos_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(input_videos_lib PUBLIC logger_lib)
+
 # Command line of the application. It reads the constants of the board libraries, so it is
 # cross-compile only.
 if(CMAKE_CROSSCOMPILING)
@@ -6,6 +11,7 @@ if(CMAKE_CROSSCOMPILING)
     target_link_libraries(
         options_lib
         PUBLIC logger_lib
+               input_videos_lib
                config_lib
                letterbox_lib
                jpeg_lib

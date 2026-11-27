@@ -48,6 +48,10 @@ constexpr int minDownscaleHeight{240};
 constexpr int defaultImageDownscaleHeight{720};
 constexpr int defaultVideoDownscaleHeight{1080};
 
+/** @brief Where the frames come from: the camera, or the .mp4 videos of a file or a folder (the
+ *         demo). */
+enum class InputSource : std::uint8_t { Camera, File };
+
 /** @brief Where the default config file is, below the folder of the application (see parseOptions).
  */
 constexpr std::string_view defaultConfigFile{"resource/config/app_config.json"};
@@ -60,6 +64,13 @@ struct AppOptions {
     /** The config file to read instead of the default one. Empty: the default file, if it exists.
      */
     std::string_view configPath;
+    /** Where the frames come from. With File, `inputPath` is a video file or a folder of them (the
+     *  Pipeline takes one video file: the app runs the videos of a folder one after the other, and
+     *  the session file is named after the video), and
+     *  the camera options except `rotation` are not used. The run needs the session on (it is the
+     *  output), and the violations are turned off. */
+    InputSource inputSource{InputSource::Camera};
+    std::string_view inputPath;
     /** Camera capture node and the frame size to ask for. */
     std::string_view cameraNode{defaultCameraNode};
     int width{defaultCameraWidth};
@@ -176,8 +187,8 @@ struct ParseResult {
  *
  * The command line is `--name value` pairs in any order (a flag given twice keeps its last
  * value), `--config <file>` to read another config file (it must exist), and `--help`. The flags:
- * --model, --node, --width, --height, --rotation, --video-kbps, --jpeg-quality, --file-format (h265
- * or mp4), --hold-seconds,
+ * --model, --input-source (camera or file), --input-path, --node, --width, --height, --rotation,
+ * --video-kbps, --jpeg-quality, --file-format (h265 or mp4), --hold-seconds,
  * --gap-seconds, --min-confidence, --violation (true or false), --violation-output-dir,
  * --violation-image (true or false), --violation-clip (true or false),
  * --violation-clip-pre-seconds, --violation-clip-post-seconds, --violation-image-downscale (true or
@@ -192,9 +203,9 @@ struct ParseResult {
  * --stream (true or false), --stream-url, --frames, --stats-seconds.
  *
  * The config file is one JSON object: `model` at the top and the other options in groups
- * (`camera`, `encode`, `rule`, `violation`, `archive`, `session`, `stream`, `run`; `violation`
- * holds the groups `image` and `clip`, and these, `archive` and `session` a group `downscale`), for
- * example
+ * (`input`, `camera`, `encode`, `rule`, `violation`, `archive`, `session`, `stream`, `run`;
+ * `violation` holds the groups `image` and `clip`, and these, `archive` and `session` a group
+ * `downscale`), for example
  * `{"model": "m.rknn", "camera": {"width": 3840}, "archive": {"enabled": true}}`. Every key is
  * optional. A key has the kind of value of its flag (`width` is a number, `node` a string,
  * `archive.enabled` true or false) and the same range. The place of each key is in the table of

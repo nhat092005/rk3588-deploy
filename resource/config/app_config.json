@@ -8,6 +8,10 @@
     {"name": "RegularHat"},
     {"name": "Person", "role": "person"}
   ],
+  "input": {
+    "source": "camera",
+    "path": "resource/demo"
+  },
   "camera": {
     "node": "/dev/video11",
     "width": 3840,

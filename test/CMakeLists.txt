@@ -64,6 +64,7 @@ foreach(TEST_SRC ${TEST_SOURCES})
                 record_lib
                 stream_lib
                 config_lib
+                input_videos_lib
     )
     if(CMAKE_CROSSCOMPILING)
         target_link_libraries(

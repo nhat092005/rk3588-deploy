@@ -16,6 +16,7 @@ constexpr std::size_t programIndex{0};
 constexpr std::string_view helpFlag{"--help"};
 constexpr std::string_view configFlag{"--config"};
 constexpr std::string_view modelKey{"model"};
+constexpr std::string_view inputPathKey{"input.path"};
 constexpr std::string_view classesKey{"classes"};
 
 // A whole number in [low, high], or false for junk, trailing text or a value out of range.
@@ -47,6 +48,20 @@ bool setModel(AppOptions& options, const char* text) {
 
 bool setConfig(AppOptions& options, const char* text) {
     options.configPath = text;
+    return *text != '\0';
+}
+
+bool setInputSource(AppOptions& options, const char* text) {
+    const std::string_view value{text};
+    if (value != "camera" && value != "file") {
+        return false;
+    }
+    options.inputSource = value == "file" ? InputSource::File : InputSource::Camera;
+    return true;
+}
+
+bool setInputPath(AppOptions& options, const char* text) {
+    options.inputPath = text;
     return *text != '\0';
 }
 
@@ -378,11 +393,16 @@ struct Flag {
     std::string_view path;
 };
 
-constexpr std::array<Flag, 42> flags{{
+constexpr std::array<Flag, 44> flags{{
     {"--model", setModel, "path of the .rknn model (required unless the config file gives it)",
      JsonKind::String, "model"},
     {"--config", setConfig, "config file, default <app folder>/resource/config/app_config.json",
      JsonKind::String, ""},
+    {"--input-source", setInputSource, "where the frames come from: camera or file (demo videos)",
+     JsonKind::String, "input.source"},
+    {"--input-path", setInputPath,
+     "with --input-source file: a .mp4 file, or a folder of them (in name order)", JsonKind::String,
+     "input.path"},
     {"--node", setNode, "camera capture node", JsonKind::String, "camera.node"},
     {"--width", setWidth, "camera frame width in pixels, even", JsonKind::Number, "camera.width"},
     {"--height", setHeight, "camera frame height in pixels, even", JsonKind::Number,
@@ -652,8 +672,8 @@ bool applyConfig(const FileText& file, const std::string& path, std::string_view
         result.storage.push_back(std::move(entry.value));
         // An empty model must stay empty so that setModel refuses it: joined, it would be the
         // folder.
-        if (flag->path == modelKey && !baseDir.empty() && !result.storage.back().empty() &&
-            !isAbsolute(result.storage.back())) {
+        if ((flag->path == modelKey || flag->path == inputPathKey) && !baseDir.empty() &&
+            !result.storage.back().empty() && !isAbsolute(result.storage.back())) {
             std::string joined{baseDir};
             joined += '/';
             joined += result.storage.back();
@@ -700,6 +720,28 @@ bool loadConfig(const Scan& scan, std::string_view baseDir, ParseResult& result,
     log.info("config file ", path);
     return applyConfig(file, path, baseDir, result, log);
 }
+
+// The demo input: needs a path and the session (the output), and turns the violations off. false,
+// with the reason logged, when it cannot run.
+bool checkInput(AppOptions& options, const Logger& log) {
+    if (options.inputSource == InputSource::Camera) {
+        return true;
+    }
+    if (options.inputPath.empty()) {
+        log.error("input.source is file but input.path is empty: give a .mp4 file or a folder "
+                  "(--input-path)");
+        return false;
+    }
+    if (!options.session) {
+        log.error("input.source is file: the video goes to the session file, set session.enabled "
+                  "to true (--session true)");
+        return false;
+    }
+    log.info("input.source is file: camera.node, camera.width and camera.height are not used",
+             options.violation ? ", violation is turned off" : "");
+    options.violation = false;
+    return true;
+}
 } // namespace
 
 ParseResult parseOptions(const std::vector<const char*>& args, std::string_view baseDir,
@@ -743,6 +785,9 @@ ParseResult parseOptions(const std::vector<const char*>& args, std::string_view 
         chosen.clipPostSeconds <= 0.0) {
         log.error("the violation clip is on but pre_seconds and post_seconds are both 0: give one "
                   "of them a time, or turn the clip off (--violation-clip false)");
+        return result;
+    }
+    if (!checkInput(result.options, log)) {
         return result;
     }
     result.status = ParseStatus::Run;

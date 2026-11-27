@@ -87,7 +87,7 @@ std::string downscaleProblem(const AppOptions& options, int fullHeight, bool arc
     for (const Output& output : outputs) {
         if (output.on && output.downscale && output.height >= fullHeight) {
             return std::string{output.name} + " " + std::to_string(output.height) +
-                   " is not below the camera height " + std::to_string(fullHeight);
+                   " is not below the source height " + std::to_string(fullHeight);
         }
     }
     return {};
