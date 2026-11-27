@@ -126,6 +126,7 @@ std::optional<Lane> makeLane(const StreamPlan& plan, const AppOptions& options,
     config.horStride = stride;
     config.verStride = size.height;
     config.fullRange = format.fullRange;
+    config.bt709 = format.matrix == ColorMatrix::Bt709;
     config.kbps = kbpsOf(options, full, plan.height);
     std::optional<VideoEncoder> encoder{VideoEncoder::create(config, log)};
     if (!encoder) {
@@ -398,10 +399,10 @@ void BranchState::queueClips() {
 std::optional<OutputBranch> OutputBranch::create(const AppOptions& options,
                                                  const CameraFormat& format,
                                                  const PacketSinks& sinks, const Logger& log) {
-    std::optional<RgaSnapshot> snapshot{
-        RgaSnapshot::create(SnapshotConfig{ImageSize{format.width, format.height},
-                                           format.bytesPerLine, options.rotation},
-                            log)};
+    std::optional<RgaSnapshot> snapshot{RgaSnapshot::create(
+        SnapshotConfig{ImageSize{format.width, format.height}, format.bytesPerLine,
+                       options.rotation, ImageSize{}, format.verticalStride},
+        log)};
     if (!snapshot) {
         return std::nullopt;
     }

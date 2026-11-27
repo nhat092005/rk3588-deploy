@@ -1,7 +1,8 @@
 // SessionWriter: the file opens at the first key frame under its final name, holds the packets in
 // order, is named by the wall clock (with a suffix when the name repeats), a gap in the stream does
 // not start a new file, and it stops for good, keeping the file, when the volume falls below the
-// floor or the disk refuses. The root and the floor are checked at creation. Uses a temporary
+// floor or the disk refuses. With a file name (the demo) the file is `<name><suffix>.part` until it
+// is published. The root and the floor are checked at creation. Uses a temporary
 // directory and fixed times in UTC. Exit code 0 when every check passes.
 #include <cstddef>
 #include <cstdint>
@@ -13,6 +14,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -239,7 +241,7 @@ void checkFile(Check& check, const fs::path& root, const Logger& log) {
         hidden += entry.path().filename().string().front() == '.' ? 1 : 0;
     }
     check.expect(hidden == 0, "no temporary file");
-    struct stat info {};
+    struct stat info{};
     check.expect(::stat((day / "093000.h265").c_str(), &info) == 0 &&
                      (info.st_mode & modeMask) == defaultFileMode,
                  "the permissions of the file");
@@ -376,7 +378,7 @@ void checkCreate(Check& check, const fs::path& root, const Logger& log) {
 // A write that the disk refuses: the file size limit makes write() fail with EFBIG. The file is
 // kept with what was written, the writer stops and reports false.
 void checkWriteError(Check& check, const fs::path& root, const Logger& log) {
-    struct rlimit before {};
+    struct rlimit before{};
     if (::getrlimit(RLIMIT_FSIZE, &before) != 0) {
         check.expect(false, "getrlimit");
         return;
@@ -385,7 +387,7 @@ void checkWriteError(Check& check, const fs::path& root, const Logger& log) {
     SessionWriter writer{makeWriter(root, log)};
     const std::time_t start{at(Hms{hourOfFirst, minuteOfFirst, 0})};
     check.expect(writer.consume(packet(packetA, true, timeFirst), start), "first key frame");
-    struct rlimit tight {};
+    struct rlimit tight{};
     tight.rlim_cur = packetSize + packetSize / 2;
     tight.rlim_max = before.rlim_max;
     (void)::setrlimit(RLIMIT_FSIZE, &tight);
@@ -398,6 +400,90 @@ void checkWriteError(Check& check, const fs::path& root, const Logger& log) {
     check.expect(fs::exists(root / "2026-11-18" / "093000.h265") &&
                      readText(root / "2026-11-18" / "093000.h265").size() >= packetSize,
                  "the file is kept after a failed write");
+}
+
+// A writer with a file name (the demo): no folder of the day, a `.part` until publish(), a replaced
+// old file, a root that is created.
+void checkNamed(Check& check, const fs::path& root, const Logger& log) {
+    const fs::path demo{root / "demo"};
+    const std::string text{demo.string()};
+    const VideoOutput marks{".mp4", &makeMarkWriter};
+    const std::time_t start{at(Hms{hourOfFirst, minuteOfFirst, 0})};
+    const auto make{[&](std::string_view name) {
+        return SessionWriter::create(
+            SessionConfig{text, floorBytes, defaultFileMode, &freeNow, marks, name}, log);
+    }};
+    {
+        std::optional<SessionWriter> writer{make("clip")};
+        check.expect(writer.has_value() && fs::is_directory(demo),
+                     "named: a root that is missing is created");
+        if (!writer) {
+            return;
+        }
+        check.expect(!writer->publish(), "named: nothing to publish before a file is written");
+        check.expect(writer->consume(packet(packetB, true, timeFirst), start) &&
+                         writer->consume(packet(packetC, false, timeSecond), start),
+                     "named: two packets");
+        check.expect(writer->path() == (demo / "clip.mp4.part").string() &&
+                         fs::exists(demo / "clip.mp4.part") && !fs::exists(demo / "clip.mp4"),
+                     "named: the file is clip.mp4.part while it is written");
+        writer->finish();
+        check.expect(!fs::exists(demo / "clip.mp4"), "named: finished but not published");
+        check.expect(writer->publish(), "named: publish");
+        check.expect(writer->path() == (demo / "clip.mp4").string() &&
+                         fs::exists(demo / "clip.mp4") && !fs::exists(demo / "clip.mp4.part"),
+                     "named: the file has its final name and the .part is gone");
+        check.expect(readText(demo / "clip.mp4") == "2k3dE", "named: the content is the video");
+        check.expect(!fs::exists(demo / "2026-11-18"), "named: no folder of the day");
+        check.expect(!writer->publish(), "named: a second publish does nothing");
+    }
+    {
+        // A later run replaces the file of the earlier one.
+        std::optional<SessionWriter> writer{make("clip")};
+        check.expect(writer && writer->consume(packet(packetE, true, timeFirst), start),
+                     "named: a second run");
+        if (!writer) {
+            return;
+        }
+        writer->finish();
+        check.expect(writer->publish() && readText(demo / "clip.mp4") == "5kE",
+                     "named: the new video replaces the old file");
+    }
+    {
+        // A run that is not published leaves the .part and not the final name. A leftover .part is
+        // overwritten.
+        std::ofstream{demo / "half.mp4.part"}
+            << "leftover of a crash that is longer than the video";
+        std::optional<SessionWriter> writer{make("half")};
+        check.expect(writer && writer->consume(packet(packetB, true, timeFirst), start),
+                     "named: a run that stops half way");
+        if (!writer) {
+            return;
+        }
+        writer->finish();
+        check.expect(readText(demo / "half.mp4.part") == "2kE" && !fs::exists(demo / "half.mp4"),
+                     "named: not published, only the .part, and it holds this run");
+    }
+    {
+        // A failure stops the writer: the .part stays and publish refuses.
+        std::optional<SessionWriter> writer{make("full")};
+        check.expect(writer && writer->consume(packet(packetB, true, timeFirst), start),
+                     "named: the file opens");
+        if (!writer) {
+            return;
+        }
+        madeUpFree() = lowBytes;
+        check.expect(writer->consume(packet(packetC, true, timeSecond), start + 1) &&
+                         writer->stopped(),
+                     "named: the volume falls below the floor");
+        writer->finish();
+        check.expect(!writer->publish() && fs::exists(demo / "full.mp4.part") &&
+                         !fs::exists(demo / "full.mp4"),
+                     "named: a stopped writer keeps the .part and does not publish");
+    }
+    madeUpFree() = roomBytes;
+    SessionWriter clock{makeWriter(root, log)};
+    check.expect(!clock.publish(), "a writer named by the clock has nothing to publish");
 }
 } // namespace
 
@@ -415,6 +501,7 @@ int main() {
     withRoot(check, log, checkFloorOff);
     withRoot(check, log, checkCreate);
     withRoot(check, log, checkWriteError);
+    withRoot(check, log, checkNamed);
     if (check.ok()) {
         report.info("PASS");
         return EXIT_SUCCESS;

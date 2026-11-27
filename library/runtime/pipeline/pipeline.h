@@ -36,7 +36,8 @@ class Pipeline {
 public:
     /**
      * @brief Opens the camera and the model, allocates every buffer, creates the threads' objects.
-     * @param options The command line, from parseOptions().
+     * @param options The command line, from parseOptions(). With a file source, `inputPath` must
+     *        be one video file.
      * @param log Logger that the object keeps for the rest of its life.
      * @return The pipeline, or empty when a device, the model, the output folder or a buffer
      *         fails, which is logged.
@@ -50,8 +51,10 @@ public:
     ~Pipeline();
 
     /**
-     * @brief Runs until the stop signal, AppOptions::frames frames, or a failure, then ends the
-     *        threads in order and finishes the clips that are being recorded.
+     * @brief Runs until the stop signal, AppOptions::frames frames, the end of the video (file
+     *        source) or a failure, then ends the threads in order and finishes the clips that are
+     *        being recorded. A session video of a file source gets its final name only when the
+     *        run ended by the frame count or the end of the video.
      * @param stop The signal that ends the run.
      * @return true when it ended by the signal or by the frame count and the camera closed
      *         cleanly, false on a failure (camera, RGA, NPU, encoder), which is logged. The camera

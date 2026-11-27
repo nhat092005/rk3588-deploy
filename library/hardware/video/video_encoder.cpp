@@ -90,6 +90,11 @@ bool VideoState::configure() {
             return false;
         }
     }
+    if (settings.bt709 &&
+        mpp_enc_cfg_set_s32(raw, "prep:colorspace", MPP_FRAME_SPC_BT709) != MPP_OK) {
+        log.error("mpp_enc_cfg_set_s32 prep:colorspace failed");
+        return false;
+    }
     if (api->control(context, MPP_ENC_SET_CFG, raw) != MPP_OK) {
         log.error("MPP_ENC_SET_CFG failed");
         return false;

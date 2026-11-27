@@ -16,6 +16,7 @@
 #include "cpu_affinity.h"
 #include "dmabuf.h"
 #include "evidence_worker.h"
+#include "file_source.h"
 #include "frame_data.h"
 #include "frame_source.h"
 #include "mailbox.h"
@@ -156,6 +157,9 @@ struct PipelineState {
     Mailbox<OutputJob> toWriter;
     Counters counters;
     std::atomic<bool> failed{false};
+    // The camera thread ended the run by itself: the video is over, or the frame count was reached.
+    // Not a signal, not a failure.
+    std::atomic<bool> finished{false};
 };
 
 namespace {
@@ -229,20 +233,32 @@ struct Capture {
     std::vector<Input> inputs;
 };
 
-std::optional<Capture> makeCapture(const AppOptions& options, NpuInfer& npu, const Logger& log) {
+// The camera of the options, or the video file of the demo.
+std::unique_ptr<FrameSource> openSource(const AppOptions& options, const Logger& log) {
+    if (options.inputSource == InputSource::File) {
+        return FileSource::open(std::string{options.inputPath}, log);
+    }
     const std::string node{options.cameraNode};
     std::optional<Camera> camera{
         Camera::open(CameraConfig{node.c_str(), options.width, options.height, defaultHeap,
                                   pipelineCameraBuffers},
                      log)};
     if (!camera) {
+        return nullptr;
+    }
+    return std::make_unique<Camera>(std::move(*camera));
+}
+
+std::optional<Capture> makeCapture(const AppOptions& options, NpuInfer& npu, const Logger& log) {
+    std::unique_ptr<FrameSource> source{openSource(options, log)};
+    if (!source) {
         return std::nullopt;
     }
-    std::unique_ptr<FrameSource> source{std::make_unique<Camera>(std::move(*camera))};
     const CameraFormat& format{source->format()};
     std::optional<RgaLetterbox> letterbox{RgaLetterbox::create(
         LetterboxConfig{ImageSize{format.width, format.height}, format.bytesPerLine,
-                        npu.inputSide(), options.rotation, format.fullRange},
+                        npu.inputSide(), options.rotation, format.fullRange, format.verticalStride,
+                        format.matrix},
         log)};
     std::optional<std::vector<RgaImage>> images{importCameraBuffers(*source, log)};
     if (!letterbox || !images) {
@@ -491,6 +507,7 @@ void cameraLoop(PipelineState& state, const StopSignal& stop) {
     WindowTimer window{state.options.statsSeconds};
     std::optional<std::int64_t> lastSequence;
     std::int64_t number{0};
+    bool finished{false};
     while (!state.failed.load() && (state.options.frames == 0 || number < state.options.frames)) {
         Frame frame;
         const Fetch fetched{fetchFrame(state, stop, lastSequence, frame)};
@@ -498,6 +515,7 @@ void cameraLoop(PipelineState& state, const StopSignal& stop) {
             if (fetched == Fetch::Failed) {
                 failRun(state);
             }
+            finished = fetched == Fetch::Ended;
             break;
         }
         if (frame.flaggedError) {
@@ -526,6 +544,8 @@ void cameraLoop(PipelineState& state, const StopSignal& stop) {
             window.restart(now);
         }
     }
+    state.finished.store(finished || (state.options.frames != 0 && number >= state.options.frames &&
+                                      !state.failed.load()));
     state.toNpu.close();
 }
 
@@ -865,6 +885,13 @@ bool Pipeline::run(const StopSignal& stop) {
     if (pipe.session) {
         pipe.session->queue().close();
         sessionThread.join();
+        // A demo video that played to its end gets its final name. One that a signal or a failure
+        // stopped stays a `.part`.
+        if (pipe.options.inputSource == InputSource::File && pipe.finished.load() &&
+            !pipe.failed.load() && !pipe.session->publish()) {
+            pipe.log.error("the session video could not be published");
+            pipe.failed.store(true);
+        }
     }
     if (pipe.evidence) {
         evidenceThread.join();

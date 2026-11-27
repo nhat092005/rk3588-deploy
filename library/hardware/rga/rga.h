@@ -6,6 +6,7 @@
 #include <optional>
 #include <utility>
 
+#include "color_matrix.h"
 #include "dmabuf.h"
 #include "letterbox_layout.h"
 #include "logger.h"
@@ -62,6 +63,12 @@ struct LetterboxConfig {
      *  ends. The RGA improcess() always decodes as limited, so a full range source costs a second
      *  call (imcvtcolor into a staging buffer of the source size). */
     bool fullRange{false};
+    /** Lines of the luma plane in the source buffer, or 0 for `source.height`. A decoder pads the
+     *  height (1088 lines for a 1080 line frame). */
+    int sourceVerticalStride{0};
+    /** The matrix of the source. BT.709 is limited range only, and like a full range source it
+     *  takes the staging buffer. */
+    ColorMatrix matrix{ColorMatrix::Bt601};
 };
 
 /**
@@ -78,8 +85,8 @@ public:
      * @brief Checks the configuration and computes the layout.
      * @param config Source geometry, target size and rotation.
      * @param log Logger that the object keeps for the rest of its life.
-     * @return The converter, or empty when a size is not above 0 or the stride is shorter than
-     *         the width, which is logged.
+     * @return The converter, or empty when a size is not above 0, a stride is shorter than the
+     *         width or height, or a full range source asks for BT.709, which is logged.
      */
     static std::optional<RgaLetterbox> create(const LetterboxConfig& config, const Logger& log);
 
@@ -115,14 +122,15 @@ private:
         : settings{config}, placement{layout}, log{logger}, staging{std::move(stagingBuffer)},
           stagingImage{std::move(stagingHandle)} {}
 
-    // NV12 full range to RGB888 of the source size, into the staging buffer.
-    [[nodiscard]] bool convertFullRange(const RgaImage& source,
-                                        const RgaImage& staged) const noexcept;
+    // NV12 to RGB888 of the source size, into the staging buffer, with the range and the matrix of
+    // the configuration.
+    [[nodiscard]] bool convertToRgb(const RgaImage& source, const RgaImage& staged) const noexcept;
 
     LetterboxConfig settings;
     LetterboxLayout placement;
     Logger log;
-    // Only for a full range source. The buffer is declared first so that it outlives its handle.
+    // Only for a full range or BT.709 source. The buffer is declared first so that it outlives its
+    // handle.
     std::optional<DmaBuf> staging;
     std::optional<RgaImage> stagingImage;
 };
@@ -138,6 +146,8 @@ struct SnapshotConfig {
     /** Size of the copy in pixels, both even, or 0 x 0 for the size of the rotated source. A
      *  smaller size scales the picture down in the same RGA call (keep the proportions). */
     ImageSize target{};
+    /** Lines of the luma plane in the source buffer, or 0 for `source.height`. */
+    int sourceVerticalStride{0};
 };
 
 /**

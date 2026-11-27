@@ -29,6 +29,9 @@ struct VideoConfig {
     /** Whether the YUV values use the full range 0 to 255 (CameraFormat::fullRange). It is written
      *  to the stream. */
     bool fullRange{false};
+    /** Whether the stream says that its colours use the BT.709 matrix. false leaves the matrix
+     *  out, as the camera stream always did. */
+    bool bt709{false};
     /** Target bitrate in kilobits per second (constant bitrate mode), 1 to maxVideoKbps. */
     int kbps{defaultVideoKbps};
     /** Frame rate of the stream, 1 to maxVideoFps. */

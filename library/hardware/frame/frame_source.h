@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "color_matrix.h"
 #include "dmabuf.h"
 #include "handles.h"
 
@@ -23,6 +24,11 @@ struct CameraFormat {
     /** Whether the driver says that the YUV values use the full range 0 to 255 (V4L2
      *  quantization). false means the limited range, 16 to 235 for luma. */
     bool fullRange{false};
+    /** Lines of the luma plane in the buffer, or 0 for `height`. A decoder pads the height (1088
+     *  lines for 1080). */
+    int verticalStride{0};
+    /** The matrix that turns the YUV into RGB. */
+    ColorMatrix matrix{ColorMatrix::Bt601};
 };
 
 /** @brief One dequeued frame. `bytesUsed` holds the used bytes of each plane. */

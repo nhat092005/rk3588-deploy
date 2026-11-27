@@ -81,10 +81,23 @@ void RgaImage::release() noexcept {
     }
 }
 
+namespace {
+// The lines of the luma plane of the source buffer.
+int sourceRows(int verticalStride, int height) noexcept {
+    return verticalStride != 0 ? verticalStride : height;
+}
+} // namespace
+
 std::optional<RgaLetterbox> RgaLetterbox::create(const LetterboxConfig& config, const Logger& log) {
-    if (config.sourceStride < config.source.width) {
-        log.error("stride ", config.sourceStride, " is shorter than the width ",
-                  config.source.width);
+    if (config.sourceStride < config.source.width ||
+        sourceRows(config.sourceVerticalStride, config.source.height) < config.source.height) {
+        log.error("stride ", config.sourceStride, " x ",
+                  sourceRows(config.sourceVerticalStride, config.source.height),
+                  " is shorter than the frame ", config.source.width, " x ", config.source.height);
+        return std::nullopt;
+    }
+    if (config.fullRange && config.matrix == ColorMatrix::Bt709) {
+        log.error("the RGA has no BT.709 full range matrix");
         return std::nullopt;
     }
     const std::optional<LetterboxLayout> layout{
@@ -99,7 +112,7 @@ std::optional<RgaLetterbox> RgaLetterbox::create(const LetterboxConfig& config, 
              " top=", layout->top, " in ", config.targetSize, "x", config.targetSize);
     std::optional<DmaBuf> staging;
     std::optional<RgaImage> stagingImage;
-    if (config.fullRange) {
+    if (config.fullRange || config.matrix == ColorMatrix::Bt709) {
         const std::size_t bytes{static_cast<std::size_t>(config.source.width) *
                                 static_cast<std::size_t>(config.source.height) * rgbChannels};
         staging = DmaBuf::allocate(DmaBufConfig{defaultHeap, bytes}, log);
@@ -127,16 +140,17 @@ bool RgaLetterbox::fillPadding(const RgaImage& target) const noexcept {
     return true;
 }
 
-bool RgaLetterbox::convertFullRange(const RgaImage& source, const RgaImage& staged) const noexcept {
-    const rga_buffer_t input{wrapbuffer_handle(source.handle(), settings.source.width,
-                                               settings.source.height, RK_FORMAT_YCbCr_420_SP,
-                                               settings.sourceStride, settings.source.height)};
+bool RgaLetterbox::convertToRgb(const RgaImage& source, const RgaImage& staged) const noexcept {
+    const rga_buffer_t input{wrapbuffer_handle(
+        source.handle(), settings.source.width, settings.source.height, RK_FORMAT_YCbCr_420_SP,
+        settings.sourceStride, sourceRows(settings.sourceVerticalStride, settings.source.height))};
     const rga_buffer_t output{wrapbuffer_handle(staged.handle(), settings.source.width,
                                                 settings.source.height, RK_FORMAT_RGB_888)};
     // Measured on the board: only imcvtcolor honours the colour space, improcess always decodes
     // YUV as BT.601 limited range.
-    const IM_STATUS status{imcvtcolor(input, output, RK_FORMAT_YCbCr_420_SP, RK_FORMAT_RGB_888,
-                                      IM_YUV_TO_RGB_BT601_FULL, 1)};
+    const int mode{settings.fullRange ? IM_YUV_TO_RGB_BT601_FULL : IM_YUV_TO_RGB_BT709_LIMIT};
+    const IM_STATUS status{
+        imcvtcolor(input, output, RK_FORMAT_YCbCr_420_SP, RK_FORMAT_RGB_888, mode, 1)};
     if (status != IM_STATUS_SUCCESS) {
         log.error("imcvtcolor: ", imStrError_t(status));
         return false;
@@ -145,19 +159,20 @@ bool RgaLetterbox::convertFullRange(const RgaImage& source, const RgaImage& stag
 }
 
 bool RgaLetterbox::run(const RgaImage& source, const RgaImage& target) const noexcept {
-    // A limited range source is converted by the improcess call below; a full range one is
-    // converted into the staging buffer first and read from there.
+    // A BT.601 limited range source is converted by the improcess call below; a full range or
+    // BT.709 one is converted into the staging buffer first and read from there.
     rga_buffer_t input{};
     if (stagingImage) {
-        if (!convertFullRange(source, *stagingImage)) {
+        if (!convertToRgb(source, *stagingImage)) {
             return false;
         }
         input = wrapbuffer_handle(stagingImage->handle(), settings.source.width,
                                   settings.source.height, RK_FORMAT_RGB_888);
     } else {
-        input = wrapbuffer_handle(source.handle(), settings.source.width, settings.source.height,
-                                  RK_FORMAT_YCbCr_420_SP, settings.sourceStride,
-                                  settings.source.height);
+        input =
+            wrapbuffer_handle(source.handle(), settings.source.width, settings.source.height,
+                              RK_FORMAT_YCbCr_420_SP, settings.sourceStride,
+                              sourceRows(settings.sourceVerticalStride, settings.source.height));
     }
     const rga_buffer_t output{wrapbuffer_handle(target.handle(), settings.targetSize,
                                                 settings.targetSize, RK_FORMAT_RGB_888)};
@@ -178,6 +193,7 @@ bool RgaLetterbox::run(const RgaImage& source, const RgaImage& target) const noe
 std::optional<RgaSnapshot> RgaSnapshot::create(const SnapshotConfig& config, const Logger& log) {
     const ImageSize& size{config.source};
     if (size.width <= 0 || size.height <= 0 || config.sourceStride < size.width ||
+        sourceRows(config.sourceVerticalStride, size.height) < size.height ||
         ((size.width | size.height) & evenMask) != 0) {
         log.error("bad snapshot source: ", size.width, "x", size.height, " stride ",
                   config.sourceStride);
@@ -209,9 +225,9 @@ namespace {
 // fence stored there.
 IM_STATUS copyFrame(const SnapshotConfig& settings, ImageSize copySize, int copyStride,
                     const RgaImage& source, const RgaImage& target, int* fence) noexcept {
-    const rga_buffer_t input{wrapbuffer_handle(source.handle(), settings.source.width,
-                                               settings.source.height, RK_FORMAT_YCbCr_420_SP,
-                                               settings.sourceStride, settings.source.height)};
+    const rga_buffer_t input{wrapbuffer_handle(
+        source.handle(), settings.source.width, settings.source.height, RK_FORMAT_YCbCr_420_SP,
+        settings.sourceStride, sourceRows(settings.sourceVerticalStride, settings.source.height))};
     const rga_buffer_t output{wrapbuffer_handle(target.handle(), copySize.width, copySize.height,
                                                 RK_FORMAT_YCbCr_420_SP, copyStride,
                                                 copySize.height)};
@@ -244,9 +260,9 @@ bool RgaSnapshot::finish(int fence) const noexcept {
 }
 
 bool RgaSnapshot::run(const RgaImage& source, const RgaImage& target) const noexcept {
-    const rga_buffer_t input{wrapbuffer_handle(source.handle(), settings.source.width,
-                                               settings.source.height, RK_FORMAT_YCbCr_420_SP,
-                                               settings.sourceStride, settings.source.height)};
+    const rga_buffer_t input{wrapbuffer_handle(
+        source.handle(), settings.source.width, settings.source.height, RK_FORMAT_YCbCr_420_SP,
+        settings.sourceStride, sourceRows(settings.sourceVerticalStride, settings.source.height))};
     const rga_buffer_t output{wrapbuffer_handle(target.handle(), copySize.width, copySize.height,
                                                 RK_FORMAT_YCbCr_420_SP, stride(), copySize.height)};
     const rga_buffer_t noPattern{};

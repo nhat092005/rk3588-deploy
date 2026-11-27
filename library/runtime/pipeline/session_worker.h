@@ -58,6 +58,10 @@ public:
     /** @brief Path of the file, empty when no key frame has opened it. Read it after run(). */
     std::string path() const;
 
+    /** @brief Gives a file with a name (AppOptions::sessionFileName) its final name, see
+     *         SessionWriter::publish(). Call it after run(), when the video is complete. */
+    [[nodiscard]] bool publish();
+
 private:
     struct State;
     explicit SessionWorker(std::unique_ptr<State> initial) noexcept;

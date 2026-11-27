@@ -17,7 +17,9 @@
 | Library | Role |
 |---|---|
 | `dmabuf` | DMA-BUF from a dma-heap |
-| `camera` | V4L2 capture into DMA-BUFs |
+| `frame` | `FrameSource`, the interface of the frames of the pipeline, and `ColorMatrix` |
+| `camera` | V4L2 capture into DMA-BUFs (a `FrameSource`) |
+| `decode` | `FileSource`: H.264 and H.265 video file, libavformat and the MPP decoder, into DMA-BUFs (a `FrameSource`) |
 | `rga` | Letterbox, rotation, `BoxMapper`, `RgaOverlay` (outlines), `RgaLabels` (text) |
 | `label` | 8x16 font, label bitmap and placement |
 | `npu` | RKNN model, zero-copy input from a `DmaBuf` |
@@ -46,7 +48,7 @@
 
 | Library | Role |
 |---|---|
-| `options` | `parseOptions`: config file and flags |
+| `options` | `parseOptions`: config file and flags; `listInputVideos`: the videos of the demo |
 | `stream` | `StreamWorker`, `ChildProcess`: packets to an `ffmpeg` that publishes RTSP |
 | `pipeline` | `Pipeline` and its threads: `OutputBranch`, `EvidenceWorker`, `RecordWorker`, `SessionWorker` |
 

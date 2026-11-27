@@ -663,6 +663,57 @@ void checkConfigModel(Check& check, const fs::path& root) {
                  "the model of the command line completes the file");
 }
 
+// The demo input: input.source and input.path, what they need, and what they turn off.
+void checkInput(Check& check, const fs::path& root) {
+    const ParseResult camera{parse({"--model", "m"})};
+    check.expect(camera.options.inputSource == InputSource::Camera &&
+                     camera.options.inputPath.empty() && camera.options.violation,
+                 "input: the camera is the default and keeps the violations");
+    const std::vector<const char*> demo{"--model",      "m",    "--input-source", "file",
+                                        "--input-path", "demo", "--session",      "true"};
+    const ParseResult file{parse(demo)};
+    check.expect(file.status == ParseStatus::Run && file.options.inputSource == InputSource::File &&
+                     file.options.inputPath == "demo",
+                 "input: a file source with a path and the session");
+    check.expect(!file.options.violation, "input: a file source turns the violations off");
+    check.expect(parse({"--model", "m", "--input-path", "demo"}).options.violation,
+                 "input: a path alone does not touch the camera run");
+    check.expect(parse({"--model", "m", "--input-source", "video"}).status == ParseStatus::Invalid,
+                 "input: an unknown source is refused");
+    check.expect(parse({"--model", "m", "--input-source", "file", "--session", "true"}).status ==
+                     ParseStatus::Invalid,
+                 "input: a file source without a path is refused");
+    check.expect(parse({"--model", "m", "--input-source", "file", "--input-path", ""}).status ==
+                     ParseStatus::Invalid,
+                 "input: an empty path is refused");
+    check.expect(parse({"--model", "m", "--input-source", "file", "--input-path", "demo"}).status ==
+                     ParseStatus::Invalid,
+                 "input: a file source without the session is refused");
+
+    const std::string base{root.string()};
+    writeDefaultConfig(root, R"({"model": "m", "input": {"source": "file", "path": "resource/demo"},
+                                 "session": {"enabled": true}})");
+    const ParseResult fromFile{parseIn(base, {})};
+    check.expect(fromFile.status == ParseStatus::Run &&
+                     fromFile.options.inputSource == InputSource::File &&
+                     fromFile.options.inputPath == base + "/resource/demo",
+                 "input: a relative path of the file is relative to the application folder");
+    check.expect(keptByResult(fromFile, fromFile.options.inputPath),
+                 "input: the path points at a string the result keeps");
+    check.expect(parseIn(base, {"--input-path", "cli"}).options.inputPath == "cli",
+                 "input: a path of the command line is not joined");
+    const ParseResult back{parseIn(base, {"--input-source", "camera"})};
+    check.expect(back.status == ParseStatus::Run &&
+                     back.options.inputSource == InputSource::Camera && back.options.violation,
+                 "input: the command line switches back to the camera");
+    writeDefaultConfig(root, R"({"model": "m", "input": {"source": "tape"}})");
+    check.expect(parseIn(base, {}).status == ParseStatus::Invalid,
+                 "input: an unknown source in the file is refused");
+    writeDefaultConfig(root, R"({"model": "m", "input": {"source": 1}})");
+    check.expect(parseIn(base, {}).status == ParseStatus::Invalid,
+                 "input: the source must be a string");
+}
+
 void checkConfigFiles(Check& check, const fs::path& root) {
     const std::string base{root.string()};
     std::error_code error;
@@ -873,6 +924,7 @@ void checkConfig(Check& check) {
     checkConfigEveryKey(check, *root);
     checkConfigOrder(check, *root);
     checkConfigModel(check, *root);
+    checkInput(check, *root);
     checkConfigFiles(check, *root);
     checkConfigClasses(check, *root);
     checkConfigRefusals(check, *root);
