@@ -7,9 +7,9 @@
 #include <optional>
 
 #include "app_options.h"
-#include "camera.h"
 #include "evidence_hub.h"
 #include "frame_data.h"
+#include "frame_source.h"
 #include "logger.h"
 #include "packet_queue.h"
 #include "rga.h"

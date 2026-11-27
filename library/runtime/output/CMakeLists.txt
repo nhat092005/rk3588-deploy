@@ -11,7 +11,7 @@ if(CMAKE_CROSSCOMPILING)
         PUBLIC logger_lib
                os_lib
                options_lib
-               camera_lib
+               frame_source_lib
                dmabuf_lib
                rga_lib
                mpp_lib
