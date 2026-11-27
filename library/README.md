@@ -50,7 +50,9 @@
 |---|---|
 | `options` | `parseOptions`: config file and flags; `listInputVideos`: the videos of the demo |
 | `stream` | `StreamWorker`, `ChildProcess`: packets to an `ffmpeg` that publishes RTSP |
-| `pipeline` | `Pipeline` and its threads: `OutputBranch`, `EvidenceWorker`, `RecordWorker`, `SessionWorker` |
+| `output` | What is done with a frame once it has its boxes: `OutputBranch` (copy, boxes, labels, H.265), `EvidenceWorker` (JPEG and clip of a violation), `FrameData` (the NPU thread to the output) |
+| `sinks` | The disk writers that run for the whole run: `RecordWorker` (archive), `SessionWorker` (session). The live stream is in `stream` |
+| `pipeline` | `Pipeline` and its threads: takes the frames of the source, runs the model, hands the result to `output` and `sinks` |
 
 ## New library
 

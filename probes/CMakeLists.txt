@@ -145,7 +145,8 @@ add_probe(
     LIBS
     camera_lib
     rga_lib
-    pipeline_lib
+    output_lib
+    sinks_lib
     options_lib
     process_lib
 )
